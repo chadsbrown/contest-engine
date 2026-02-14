@@ -5,6 +5,7 @@ version = 4
 [[package]]
 name = "adif_parser"
 version = "0.1.0"
+source = "git+https://github.com/chadsbrown/adif_parser#42f37462ffa4eaf17e4132df9e56c28e97e1d546"
 dependencies = [
  "thiserror",
 ]

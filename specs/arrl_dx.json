@@ -5,18 +5,18 @@
   "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
   "modes": ["CW", "SSB"],
   "dupe_dimension": "Band",
-  "valid_qso": [[{"Ne": [{"Field": "SourceIsWve"}, {"Field": "DestIsWve"}]}, "ARRL DX requires W/VE <-> DX contacts only"]],
+  "valid_qso": [[{"Ne": [{"Field": {"scope": "SOURCE", "key": "is_wve"}}, {"Field": {"scope": "DEST", "key": "is_wve"}}]}, "ARRL DX requires W/VE <-> DX contacts only"]],
   "exchange": {
     "received_variants": [
       {
-        "when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": true}}]},
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": true}}]},
         "fields": [
           {"id": "rst", "field_type": "Rst", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
           {"id": "power", "field_type": "Power", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false}
         ]
       },
       {
-        "when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": false}}]},
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": false}}]},
         "fields": [
           {"id": "rst", "field_type": "Rst", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
           {"id": "sp", "field_type": "Enum", "required": true, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}, "accept": [], "normalize_upper_trim": false}
@@ -25,14 +25,14 @@
     ],
     "sent_variants": [
       {
-        "when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": true}}]},
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": true}}]},
         "fields": [
           {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
           {"id": "sp", "value": {"Config": "my_state_province"}, "normalize_upper_trim": true}
         ]
       },
       {
-        "when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": false}}]},
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": false}}]},
         "fields": [
           {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
           {"id": "power", "value": {"Config": "my_power_sent"}, "normalize_upper_trim": true}
@@ -45,15 +45,15 @@
       "id": "dx_mult",
       "dimension": "Band",
       "variants": [
-        {"when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": true}}]}, "key": "DestDxcc", "domain": {"External": {"name": "dxcc_entities_excluding_w_ve"}}},
-        {"when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": false}}]}, "key": {"Rcvd": "sp"}, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}}
+        {"when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": true}}]}, "key": {"scope": "DEST", "key": "dxcc"}, "domain": {"External": {"name": "dxcc_entities_excluding_w_ve"}}},
+        {"when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": false}}]}, "key": {"scope": "RCVD", "key": "sp"}, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}}
       ]
     }
   ],
   "points": [{"when": null, "value": 3}],
   "config_fields": [
     {"id": "my_is_wve", "required": true, "required_when": null, "domain": null},
-    {"id": "my_state_province", "required": false, "required_when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": true}}]}, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}},
-    {"id": "my_power_sent", "required": false, "required_when": {"Eq": [{"Field": {"Config": "my_is_wve"}}, {"Value": {"Bool": false}}]}, "domain": null}
+    {"id": "my_state_province", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": true}}]}, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}},
+    {"id": "my_power_sent", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": false}}]}, "domain": null}
   ]
 }

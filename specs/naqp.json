@@ -9,14 +9,14 @@
   "exchange": {
     "received_variants": [
       {
-        "when": {"Eq": [{"Field": "DestIsNa"}, {"Value": {"Bool": true}}]},
+        "when": {"Eq": [{"Field": {"scope": "DEST", "key": "is_na"}}, {"Value": {"Bool": true}}]},
         "fields": [
           {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true},
           {"id": "loc", "field_type": "Enum", "required": true, "domain": {"External": {"name": "naqp_multipliers"}}, "accept": [], "normalize_upper_trim": false}
         ]
       },
       {
-        "when": {"Eq": [{"Field": "DestIsNa"}, {"Value": {"Bool": false}}]},
+        "when": {"Eq": [{"Field": {"scope": "DEST", "key": "is_na"}}, {"Value": {"Bool": false}}]},
         "fields": [
           {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true},
           {"id": "loc", "field_type": "Literal", "required": false, "domain": null, "accept": ["DX"], "normalize_upper_trim": false}
@@ -34,7 +34,7 @@
     ]
   },
   "multipliers": [
-    {"id": "na_mult", "dimension": "Band", "variants": [{"when": null, "key": {"Rcvd": "loc"}, "domain": {"External": {"name": "naqp_multipliers"}}}]}
+    {"id": "na_mult", "dimension": "Band", "variants": [{"when": null, "key": {"scope": "RCVD", "key": "loc"}, "domain": {"External": {"name": "naqp_multipliers"}}}]}
   ],
   "points": [{"when": null, "value": 1}],
   "config_fields": [

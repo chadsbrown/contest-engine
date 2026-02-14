@@ -1,6 +1,6 @@
 use adif_parser::{Record, parse_adi};
 use contest_engine::spec::{
-    ContestSpec, ResolvedStation, SpecEngine, StationResolver, Value, domain_packs,
+    ContestSpec, Mode, ResolvedStation, SpecEngine, StationResolver, Value, domain_packs,
 };
 use contest_engine::types::{Band, Callsign, Continent};
 use std::collections::HashMap;
@@ -197,6 +197,16 @@ fn parse_band_from_record(record: &Record) -> Option<Band> {
     None
 }
 
+fn parse_mode_from_record(record: &Record) -> Option<Mode> {
+    let raw = record.get_value("MODE")?.trim().to_ascii_uppercase();
+    match raw.as_str() {
+        "CW" => Some(Mode::CW),
+        "SSB" | "PH" | "PHONE" | "LSB" | "USB" | "FM" | "AM" => Some(Mode::SSB),
+        "RTTY" | "RY" | "DIGI" | "DIGITALVOICE" => Some(Mode::RTTY),
+        _ => None,
+    }
+}
+
 fn parse_args() -> Result<HashMap<String, Vec<String>>, String> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
     let mut args = env::args().skip(1).peekable();
@@ -358,6 +368,11 @@ fn main() -> Result<(), String> {
 
     let spec = ContestSpec::from_path(spec_path)?;
     let spec_id = spec.id.clone();
+    let default_mode = if spec.modes.len() == 1 {
+        spec.modes.first().copied()
+    } else {
+        None
+    };
     let domains = domain_packs::load_standard_domain_pack(domains_dir)?;
     let resolver = CtyResolver::from_file(cty_path)?;
     let source = resolver
@@ -409,8 +424,15 @@ fn main() -> Result<(), String> {
                 continue;
             }
         };
+        let mode = match parse_mode_from_record(record).or(default_mode) {
+            Some(v) => v,
+            None => {
+                skipped += 1;
+                continue;
+            }
+        };
 
-        match engine.apply_qso(&resolver, &domains, band, call, &raw_exchange) {
+        match engine.apply_qso_with_mode(&resolver, &domains, band, mode, call, &raw_exchange) {
             Ok(_) => applied += 1,
             Err(err) => {
                 failed += 1;

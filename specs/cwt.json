@@ -27,7 +27,7 @@
     ]
   },
   "multipliers": [
-    {"id": "call", "dimension": "Global", "variants": [{"when": null, "key": "DestCall", "domain": "Any"}]}
+    {"id": "call", "dimension": "Global", "variants": [{"when": null, "key": {"scope": "DEST", "key": "call"}, "domain": "Any"}]}
   ],
   "points": [{"when": null, "value": 1}],
   "config_fields": [

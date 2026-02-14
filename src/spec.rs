@@ -23,7 +23,7 @@ impl ResolvedStation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Mode {
     CW,
     SSB,
@@ -56,18 +56,56 @@ impl Value {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FieldRef {
-    Config(String),
-    SourceDxcc,
-    SourceContinent,
-    SourceIsWve,
-    SourceIsNa,
-    DestDxcc,
-    DestContinent,
-    DestIsWve,
-    DestIsNa,
-    DestCall,
-    Rcvd(String),
+#[serde(rename_all = "UPPERCASE")]
+pub enum Scope {
+    Config,
+    Source,
+    Dest,
+    Rcvd,
+    Sent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldRef {
+    pub scope: Scope,
+    pub key: String,
+}
+
+impl FieldRef {
+    pub fn config(key: impl AsRef<str>) -> Self {
+        Self {
+            scope: Scope::Config,
+            key: key.as_ref().to_string(),
+        }
+    }
+
+    pub fn source(key: impl AsRef<str>) -> Self {
+        Self {
+            scope: Scope::Source,
+            key: key.as_ref().to_string(),
+        }
+    }
+
+    pub fn dest(key: impl AsRef<str>) -> Self {
+        Self {
+            scope: Scope::Dest,
+            key: key.as_ref().to_string(),
+        }
+    }
+
+    pub fn rcvd(key: impl AsRef<str>) -> Self {
+        Self {
+            scope: Scope::Rcvd,
+            key: key.as_ref().to_string(),
+        }
+    }
+
+    pub fn sent(key: impl AsRef<str>) -> Self {
+        Self {
+            scope: Scope::Sent,
+            key: key.as_ref().to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,6 +128,7 @@ pub enum Predicate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Dimension {
     Band,
+    BandMode,
     Global,
 }
 
@@ -182,8 +221,27 @@ pub struct MultiplierSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiplierVariant {
     pub when: Option<Predicate>,
-    pub key: FieldRef,
+    pub key: KeyExpr,
     pub domain: DomainRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum KeyExpr {
+    Field(FieldRef),
+    Op(KeyExprOp),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeyExprOp {
+    Concat(Vec<KeyExprPart>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum KeyExprPart {
+    Field(FieldRef),
+    Const(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,21 +363,52 @@ struct EvalContext<'a> {
     dest: &'a ResolvedStation,
     dest_call: &'a str,
     rcvd: &'a HashMap<String, Value>,
+    sent: &'a HashMap<String, Value>,
+}
+
+fn eval_station_field(station: &ResolvedStation, key: &str) -> Option<Value> {
+    match key.trim().to_ascii_lowercase().as_str() {
+        "dxcc" => Some(Value::Text(station.dxcc.clone())),
+        "continent" => Some(Value::Text(format!("{:?}", station.continent))),
+        "is_wve" | "iswve" => Some(Value::Bool(station.is_wve)),
+        "is_na" | "isna" => Some(Value::Bool(station.is_na)),
+        _ => None,
+    }
 }
 
 fn eval_field(ctx: &EvalContext<'_>, field: &FieldRef) -> Option<Value> {
-    match field {
-        FieldRef::Config(id) => ctx.config.get(id).cloned(),
-        FieldRef::SourceDxcc => Some(Value::Text(ctx.source.dxcc.clone())),
-        FieldRef::SourceContinent => Some(Value::Text(format!("{:?}", ctx.source.continent))),
-        FieldRef::SourceIsWve => Some(Value::Bool(ctx.source.is_wve)),
-        FieldRef::SourceIsNa => Some(Value::Bool(ctx.source.is_na)),
-        FieldRef::DestDxcc => Some(Value::Text(ctx.dest.dxcc.clone())),
-        FieldRef::DestContinent => Some(Value::Text(format!("{:?}", ctx.dest.continent))),
-        FieldRef::DestIsWve => Some(Value::Bool(ctx.dest.is_wve)),
-        FieldRef::DestIsNa => Some(Value::Bool(ctx.dest.is_na)),
-        FieldRef::DestCall => Some(Value::Text(ctx.dest_call.to_string())),
-        FieldRef::Rcvd(id) => ctx.rcvd.get(id).cloned(),
+    match field.scope {
+        Scope::Config => ctx.config.get(&field.key).cloned(),
+        Scope::Source => eval_station_field(ctx.source, &field.key),
+        Scope::Dest => {
+            if field.key.trim().eq_ignore_ascii_case("call") {
+                Some(Value::Text(ctx.dest_call.to_string()))
+            } else {
+                eval_station_field(ctx.dest, &field.key)
+            }
+        }
+        Scope::Rcvd => ctx.rcvd.get(&field.key).cloned(),
+        Scope::Sent => ctx.sent.get(&field.key).cloned(),
+    }
+}
+
+fn eval_key_part(ctx: &EvalContext<'_>, part: &KeyExprPart) -> Option<String> {
+    match part {
+        KeyExprPart::Field(field) => eval_field(ctx, field).map(|v| v.as_text()),
+        KeyExprPart::Const(text) => Some(text.clone()),
+    }
+}
+
+fn eval_key_expr(ctx: &EvalContext<'_>, expr: &KeyExpr) -> Option<String> {
+    match expr {
+        KeyExpr::Field(field) => eval_field(ctx, field).map(|v| v.as_text()),
+        KeyExpr::Op(KeyExprOp::Concat(parts)) => {
+            let mut out = String::new();
+            for part in parts {
+                out.push_str(&eval_key_part(ctx, part)?);
+            }
+            Some(out)
+        }
     }
 }
 
@@ -499,11 +588,13 @@ fn parse_received(
     domains: &dyn DomainProvider,
 ) -> Result<HashMap<String, Value>, Vec<String>> {
     let empty = HashMap::new();
+    let sent = HashMap::new();
     let base_ctx = EvalContext {
         config,
         source,
         dest,
         rcvd: &empty,
+        sent: &sent,
         dest_call: "",
     };
     let variant = spec
@@ -581,8 +672,8 @@ pub struct SpecEngine {
     source: ResolvedStation,
     total_points: i64,
     total_qsos: u32,
-    dupes: HashSet<(Band, Callsign)>,
-    mults: HashMap<(String, Option<Band>), HashSet<String>>,
+    dupes: HashSet<(Option<Band>, Option<Mode>, Callsign)>,
+    mults: HashMap<(String, Option<Band>, Option<Mode>), HashSet<String>>,
 }
 
 pub struct SpecSession<R, D>
@@ -596,10 +687,11 @@ where
 }
 
 impl SpecEngine {
-    fn mult_scope_key(dimension: Dimension, band: Band) -> Option<Band> {
+    fn scope_key(dimension: Dimension, band: Band, mode: Mode) -> (Option<Band>, Option<Mode>) {
         match dimension {
-            Dimension::Band => Some(band),
-            Dimension::Global => None,
+            Dimension::Band => (Some(band), None),
+            Dimension::BandMode => (Some(band), Some(mode)),
+            Dimension::Global => (None, None),
         }
     }
 
@@ -628,6 +720,24 @@ impl SpecEngine {
         call: Callsign,
         raw_exchange: &str,
     ) -> Result<ApplySummary, EngineError> {
+        self.apply_qso_with_mode(resolver, domains, band, Mode::CW, call, raw_exchange)
+    }
+
+    pub fn apply_qso_with_mode(
+        &mut self,
+        resolver: &dyn StationResolver,
+        domains: &dyn DomainProvider,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+        raw_exchange: &str,
+    ) -> Result<ApplySummary, EngineError> {
+        if !self.spec.modes.contains(&mode) {
+            return Err(EngineError::InvalidQso(format!(
+                "mode {:?} is not allowed for contest {}",
+                mode, self.spec.id
+            )));
+        }
         let dest = resolver.resolve(&call).map_err(EngineError::Resolve)?;
         let parsed = parse_received(
             &self.spec,
@@ -639,12 +749,14 @@ impl SpecEngine {
         )
         .map_err(EngineError::Exchange)?;
         let call_text = call.as_str().to_string();
+        let empty = HashMap::new();
         let ctx = EvalContext {
             config: &self.config,
             source: &self.source,
             dest: &dest,
             dest_call: &call_text,
             rcvd: &parsed,
+            sent: &empty,
         };
         for (check, msg) in &self.spec.valid_qso {
             if !eval_predicate(&ctx, check) {
@@ -652,17 +764,18 @@ impl SpecEngine {
             }
         }
 
-        if self.dupes.contains(&(band, call.clone())) {
+        let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode);
+        if self.dupes.contains(&(dupe_scope.0, dupe_scope.1, call.clone())) {
             return Ok(self.summary(true, 0, Vec::new()));
         }
-        self.dupes.insert((band, call));
+        self.dupes.insert((dupe_scope.0, dupe_scope.1, call));
         self.total_qsos += 1;
 
         let qso_points = self.compute_points(&ctx);
         self.total_points += qso_points;
         let mut new_mults = Vec::new();
         for mult in &self.spec.multipliers {
-            let mult_scope = Self::mult_scope_key(mult.dimension.clone(), band);
+            let mult_scope = Self::scope_key(mult.dimension.clone(), band, mode);
             let variant = match mult.variants.iter().find(|v| {
                 v.when
                     .as_ref()
@@ -672,14 +785,17 @@ impl SpecEngine {
                 Some(v) => v,
                 None => continue,
             };
-            let value = match eval_field(&ctx, &variant.key) {
-                Some(v) => v.as_text(),
+            let value = match eval_key_expr(&ctx, &variant.key) {
+                Some(v) => v,
                 None => continue,
             };
             if !validate_value_in_domain(&value, &variant.domain, domains) {
                 continue;
             }
-            let state = self.mults.entry((mult.id.clone(), mult_scope)).or_default();
+            let state = self
+                .mults
+                .entry((mult.id.clone(), mult_scope.0, mult_scope.1))
+                .or_default();
             if state.insert(value.clone()) {
                 new_mults.push(format!("{}:{}", mult.id, value));
             }
@@ -699,6 +815,7 @@ impl SpecEngine {
             dest,
             dest_call: "",
             rcvd: &empty,
+            sent: &empty,
         };
         let variant = self
             .spec
@@ -787,7 +904,26 @@ impl SpecEngine {
         call: Callsign,
         raw_exchange: &str,
     ) -> Result<CandidateSummary, EngineError> {
-        let is_dupe = self.dupes.contains(&(band, call.clone()));
+        self.classify_candidate_with_mode(resolver, domains, band, Mode::CW, call, raw_exchange)
+    }
+
+    pub fn classify_candidate_with_mode(
+        &self,
+        resolver: &dyn StationResolver,
+        domains: &dyn DomainProvider,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+        raw_exchange: &str,
+    ) -> Result<CandidateSummary, EngineError> {
+        if !self.spec.modes.contains(&mode) {
+            return Err(EngineError::InvalidQso(format!(
+                "mode {:?} is not allowed for contest {}",
+                mode, self.spec.id
+            )));
+        }
+        let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode);
+        let is_dupe = self.dupes.contains(&(dupe_scope.0, dupe_scope.1, call.clone()));
         let dest = resolver.resolve(&call).map_err(EngineError::Resolve)?;
         let parsed = parse_received(
             &self.spec,
@@ -799,12 +935,14 @@ impl SpecEngine {
         )
         .map_err(EngineError::Exchange)?;
         let call_text = call.as_str().to_string();
+        let empty = HashMap::new();
         let ctx = EvalContext {
             config: &self.config,
             source: &self.source,
             dest: &dest,
             dest_call: &call_text,
             rcvd: &parsed,
+            sent: &empty,
         };
         let mut would_be = Vec::new();
         for mult in &self.spec.multipliers {
@@ -817,8 +955,8 @@ impl SpecEngine {
                 Some(v) => v,
                 None => continue,
             };
-            let value = match eval_field(&ctx, &variant.key) {
-                Some(v) => v.as_text(),
+            let value = match eval_key_expr(&ctx, &variant.key) {
+                Some(v) => v,
                 None => continue,
             };
             if !validate_value_in_domain(&value, &variant.domain, domains) {
@@ -826,7 +964,10 @@ impl SpecEngine {
             }
             let seen = self
                 .mults
-                .get(&(mult.id.clone(), Self::mult_scope_key(mult.dimension.clone(), band)))
+                .get(&{
+                    let s = Self::scope_key(mult.dimension.clone(), band, mode);
+                    (mult.id.clone(), s.0, s.1)
+                })
                 .map(|s| s.contains(&value))
                 .unwrap_or(false);
             if !seen {
@@ -840,13 +981,27 @@ impl SpecEngine {
     }
 
     pub fn worked_mults(&self, mult_id: &str, band: Option<Band>) -> Vec<String> {
+        self.worked_mults_scoped(mult_id, band, None)
+    }
+
+    pub fn worked_mults_scoped(
+        &self,
+        mult_id: &str,
+        band: Option<Band>,
+        mode: Option<Mode>,
+    ) -> Vec<String> {
         let mut out = Vec::new();
-        for ((id, b), values) in &self.mults {
+        for ((id, b, m), values) in &self.mults {
             if id != mult_id {
                 continue;
             }
             if let Some(query_band) = band {
                 if *b != Some(query_band) && b.is_some() {
+                    continue;
+                }
+            }
+            if let Some(query_mode) = mode {
+                if *m != Some(query_mode) && m.is_some() {
                     continue;
                 }
             }
@@ -863,7 +1018,20 @@ impl SpecEngine {
         mult_id: &str,
         band: Option<Band>,
     ) -> Vec<String> {
-        let worked: HashSet<String> = self.worked_mults(mult_id, band).into_iter().collect();
+        self.needed_mults_scoped(domains, mult_id, band, None)
+    }
+
+    pub fn needed_mults_scoped(
+        &self,
+        domains: &dyn DomainProvider,
+        mult_id: &str,
+        band: Option<Band>,
+        mode: Option<Mode>,
+    ) -> Vec<String> {
+        let worked: HashSet<String> = self
+            .worked_mults_scoped(mult_id, band, mode)
+            .into_iter()
+            .collect();
         let mult = match self.spec.multipliers.iter().find(|m| m.id == mult_id) {
             Some(v) => v,
             None => return Vec::new(),
@@ -875,6 +1043,7 @@ impl SpecEngine {
             dest: &self.source,
             dest_call: "",
             rcvd: &empty,
+            sent: &empty,
         };
         let variant = match mult.variants.iter().find(|v| {
             v.when
@@ -977,6 +1146,17 @@ where
             .apply_qso(&self.resolver, &self.domains, band, call, raw_exchange)
     }
 
+    pub fn apply_qso_with_mode(
+        &mut self,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+        raw_exchange: &str,
+    ) -> Result<ApplySummary, EngineError> {
+        self.engine
+            .apply_qso_with_mode(&self.resolver, &self.domains, band, mode, call, raw_exchange)
+    }
+
     pub fn classify_candidate(
         &self,
         band: Band,
@@ -987,12 +1167,48 @@ where
             .classify_candidate(&self.resolver, &self.domains, band, call, raw_exchange)
     }
 
+    pub fn classify_candidate_with_mode(
+        &self,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+        raw_exchange: &str,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.engine.classify_candidate_with_mode(
+            &self.resolver,
+            &self.domains,
+            band,
+            mode,
+            call,
+            raw_exchange,
+        )
+    }
+
     pub fn worked_mults(&self, mult_id: &str, band: Option<Band>) -> Vec<String> {
         self.engine.worked_mults(mult_id, band)
     }
 
+    pub fn worked_mults_scoped(
+        &self,
+        mult_id: &str,
+        band: Option<Band>,
+        mode: Option<Mode>,
+    ) -> Vec<String> {
+        self.engine.worked_mults_scoped(mult_id, band, mode)
+    }
+
     pub fn needed_mults(&self, mult_id: &str, band: Option<Band>) -> Vec<String> {
         self.engine.needed_mults(&self.domains, mult_id, band)
+    }
+
+    pub fn needed_mults_scoped(
+        &self,
+        mult_id: &str,
+        band: Option<Band>,
+        mode: Option<Mode>,
+    ) -> Vec<String> {
+        self.engine
+            .needed_mults_scoped(&self.domains, mult_id, band, mode)
     }
 
     pub fn engine(&self) -> &SpecEngine {
@@ -1043,6 +1259,7 @@ fn validate_config(
         dest: source,
         dest_call: "",
         rcvd: &empty,
+        sent: &empty,
     };
     for field in &spec.config_fields {
         let conditional = field
@@ -1469,6 +1686,71 @@ mod tests {
     }
 
     #[test]
+    fn bandmode_dupes_and_multipliers_scope_per_mode() {
+        let mut spec = load_spec("naqp");
+        spec.dupe_dimension = Dimension::BandMode;
+        spec.multipliers[0].dimension = Dimension::BandMode;
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let first = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "AL MA",
+            )
+            .unwrap();
+        assert!(!first.is_dupe);
+        assert_eq!(first.new_mults, vec!["na_mult:MA"]);
+
+        let dupe = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "AL MA",
+            )
+            .unwrap();
+        assert!(dupe.is_dupe);
+
+        let second_mode = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::SSB,
+                Callsign::new("K1ABC"),
+                "AL MA",
+            )
+            .unwrap();
+        assert!(!second_mode.is_dupe);
+        assert_eq!(second_mode.new_mults, vec!["na_mult:MA"]);
+        assert_eq!(
+            engine.worked_mults_scoped("na_mult", Some(Band::B20), Some(Mode::CW)),
+            vec!["MA"]
+        );
+        assert_eq!(
+            engine.worked_mults_scoped("na_mult", Some(Band::B20), Some(Mode::SSB)),
+            vec!["MA"]
+        );
+    }
+
+    #[test]
     fn config_validation_enforces_required_and_conditional_fields() {
         let spec = load_spec("arrl_dx");
         let source = ResolvedStation::new("W", Continent::NA, true, true);
@@ -1554,6 +1836,53 @@ config_fields: []
         let loaded_path = ContestSpec::from_path(&path).unwrap();
         assert_eq!(loaded_path.cabrillo_contest, "DEMO");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn multiplier_key_concat_expression_evaluates() {
+        let spec_json = r#"{
+  "id":"concat_demo",
+  "name":"Concat Demo",
+  "cabrillo_contest":"DEMO",
+  "bands":["B20"],
+  "modes":["CW"],
+  "dupe_dimension":"Band",
+  "valid_qso":[],
+  "exchange":{
+    "received_variants":[{"when":null,"fields":[
+      {"id":"rst","field_type":"Rst","required":true,"domain":null,"accept":[],"normalize_upper_trim":false},
+      {"id":"zone","field_type":"Int","required":true,"domain":{"Range":{"min":1,"max":40}},"accept":[],"normalize_upper_trim":false}
+    ]}]
+  },
+  "multipliers":[
+    {"id":"combo","dimension":"Band","variants":[
+      {"when":null,"key":{"Concat":[{"scope":"DEST","key":"dxcc"},"-",{"scope":"RCVD","key":"zone"}]},"domain":{"List":["DL-14"]}}
+    ]}
+  ],
+  "points":[{"when":null,"value":1}],
+  "config_fields":[]
+}"#;
+        let spec = ContestSpec::from_json_str(spec_json).unwrap();
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "DL1ABC",
+            ResolvedStation::new("DL", Continent::EU, false, false),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let config = HashMap::new();
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let result = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("DL1ABC"),
+                "599 14",
+            )
+            .unwrap();
+        assert_eq!(result.new_mults, vec!["combo:DL-14"]);
     }
 
     #[test]
