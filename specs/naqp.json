@@ -37,6 +37,7 @@
     {"id": "na_mult", "dimension": "Band", "variants": [{"when": null, "key": {"scope": "RCVD", "key": "loc"}, "domain": {"External": {"name": "naqp_multipliers"}}}]}
   ],
   "points": [{"when": null, "value": 1}],
+  "score": {"formula": "points_times_mults"},
   "config_fields": [
     {"id": "my_name", "required": true, "required_when": null, "domain": null},
     {"id": "my_loc", "required": true, "required_when": null, "domain": {"External": {"name": "naqp_multipliers"}}}

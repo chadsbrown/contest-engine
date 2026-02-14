@@ -266,6 +266,27 @@ pub struct ContestSpec {
     pub multipliers: Vec<MultiplierSpec>,
     pub points: Vec<PointRule>,
     pub config_fields: Vec<ConfigField>,
+    #[serde(default)]
+    pub score: ScoreSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScoreSpec {
+    pub formula: ScoreFormula,
+}
+
+impl Default for ScoreSpec {
+    fn default() -> Self {
+        Self {
+            formula: ScoreFormula::PointsTimesMults,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreFormula {
+    PointsTimesMults,
 }
 
 impl ContestSpec {
@@ -1198,7 +1219,9 @@ impl SpecEngine {
     }
 
     pub fn claimed_score(&self) -> i64 {
-        self.total_points * self.total_mults() as i64
+        match self.spec.score.formula {
+            ScoreFormula::PointsTimesMults => self.total_points * self.total_mults() as i64,
+        }
     }
 
     fn compute_points(&self, ctx: &EvalContext<'_>) -> i64 {

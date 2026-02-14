@@ -51,6 +51,7 @@
     }
   ],
   "points": [{"when": null, "value": 3}],
+  "score": {"formula": "points_times_mults"},
   "config_fields": [
     {"id": "my_is_wve", "required": true, "required_when": null, "domain": null},
     {"id": "my_state_province", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": true}}]}, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}},

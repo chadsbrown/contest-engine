@@ -30,6 +30,7 @@
     {"id": "call", "dimension": "Global", "variants": [{"when": null, "key": {"scope": "DEST", "key": "call"}, "domain": "Any"}]}
   ],
   "points": [{"when": null, "value": 1}],
+  "score": {"formula": "points_times_mults"},
   "config_fields": [
     {"id": "my_name", "required": true, "required_when": null, "domain": null},
     {"id": "my_xchg", "required": true, "required_when": null, "domain": "Any"}
