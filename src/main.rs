@@ -1,11 +1,11 @@
 use contest_engine::spec::{
-    InMemoryDomainProvider, InMemoryResolver, ResolvedStation, SpecSession, Value, definitions,
+    InMemoryDomainProvider, InMemoryResolver, ResolvedStation, SpecSession, Value, ContestSpec,
 };
 use contest_engine::types::{Band, Callsign, Continent};
 use std::collections::HashMap;
 
 fn main() {
-    let spec = definitions::cqww_cw();
+    let spec = ContestSpec::from_path("specs/cqww_cw.json").expect("load cqww spec");
 
     let mut domains = InMemoryDomainProvider::new();
     domains.insert(

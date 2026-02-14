@@ -302,6 +302,24 @@ fn build_exchange(spec_id: &str, record: &Record) -> Option<String> {
                 Some(format!("{rst} {token}"))
             }
         }
+        "cwt" => {
+            if let Some(ex) = srx {
+                let mut parts: Vec<String> =
+                    ex.split_whitespace().map(|s| s.to_string()).collect();
+                if parts.first().is_some_and(|t| is_rst_like(t)) {
+                    parts.remove(0);
+                }
+                if parts.len() >= 2 {
+                    return Some(format!("{} {}", parts[0], parts[1]));
+                }
+            }
+            let name = first_value(record, &["NAME", "OPERATOR"])?;
+            let xchg = first_value(
+                record,
+                &["SRX", "STATE", "VE_PROV", "QTH", "COUNTRY", "SRX_STRING"],
+            )?;
+            Some(format!("{name} {xchg}"))
+        }
         _ => {
             if let Some(ex) = srx {
                 return Some(ex);

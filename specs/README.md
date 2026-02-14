@@ -6,6 +6,7 @@ Current files:
 - `specs/cqww_cw.json`
 - `specs/arrl_dx.json`
 - `specs/naqp.json`
+- `specs/cwt.json`
 - `specs/domains/arrl_dx_wve_multipliers.txt`
 - `specs/domains/naqp_multipliers.txt`
 - `specs/domains/dxcc_entities_excluding_w_ve.txt`

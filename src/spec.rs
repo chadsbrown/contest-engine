@@ -66,6 +66,7 @@ pub enum FieldRef {
     DestContinent,
     DestIsWve,
     DestIsNa,
+    DestCall,
     Rcvd(String),
 }
 
@@ -89,10 +90,12 @@ pub enum Predicate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Dimension {
     Band,
+    Global,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DomainRef {
+    Any,
     Range { min: i64, max: i64 },
     External { name: String },
     List(Vec<String>),
@@ -300,6 +303,7 @@ struct EvalContext<'a> {
     config: &'a HashMap<String, Value>,
     source: &'a ResolvedStation,
     dest: &'a ResolvedStation,
+    dest_call: &'a str,
     rcvd: &'a HashMap<String, Value>,
 }
 
@@ -314,6 +318,7 @@ fn eval_field(ctx: &EvalContext<'_>, field: &FieldRef) -> Option<Value> {
         FieldRef::DestContinent => Some(Value::Text(format!("{:?}", ctx.dest.continent))),
         FieldRef::DestIsWve => Some(Value::Bool(ctx.dest.is_wve)),
         FieldRef::DestIsNa => Some(Value::Bool(ctx.dest.is_na)),
+        FieldRef::DestCall => Some(Value::Text(ctx.dest_call.to_string())),
         FieldRef::Rcvd(id) => ctx.rcvd.get(id).cloned(),
     }
 }
@@ -466,6 +471,7 @@ fn parse_field(
     if let Some(domain) = &field.domain {
         let text = parsed.as_text();
         let ok = match domain {
+            DomainRef::Any => true,
             DomainRef::Range { min, max } => parsed
                 .as_i64()
                 .map(|v| v >= *min && v <= *max)
@@ -498,6 +504,7 @@ fn parse_received(
         source,
         dest,
         rcvd: &empty,
+        dest_call: "",
     };
     let variant = spec
         .exchange
@@ -552,6 +559,7 @@ fn parse_received(
 
 fn validate_value_in_domain(value: &str, domain: &DomainRef, domains: &dyn DomainProvider) -> bool {
     match domain {
+        DomainRef::Any => true,
         DomainRef::Range { min, max } => value
             .parse::<i64>()
             .map(|v| v >= *min && v <= *max)
@@ -574,7 +582,7 @@ pub struct SpecEngine {
     total_points: i64,
     total_qsos: u32,
     dupes: HashSet<(Band, Callsign)>,
-    mults: HashMap<(String, Band), HashSet<String>>,
+    mults: HashMap<(String, Option<Band>), HashSet<String>>,
 }
 
 pub struct SpecSession<R, D>
@@ -588,6 +596,13 @@ where
 }
 
 impl SpecEngine {
+    fn mult_scope_key(dimension: Dimension, band: Band) -> Option<Band> {
+        match dimension {
+            Dimension::Band => Some(band),
+            Dimension::Global => None,
+        }
+    }
+
     pub fn new(
         spec: ContestSpec,
         source: ResolvedStation,
@@ -623,10 +638,12 @@ impl SpecEngine {
             domains,
         )
         .map_err(EngineError::Exchange)?;
+        let call_text = call.as_str().to_string();
         let ctx = EvalContext {
             config: &self.config,
             source: &self.source,
             dest: &dest,
+            dest_call: &call_text,
             rcvd: &parsed,
         };
         for (check, msg) in &self.spec.valid_qso {
@@ -645,9 +662,7 @@ impl SpecEngine {
         self.total_points += qso_points;
         let mut new_mults = Vec::new();
         for mult in &self.spec.multipliers {
-            if mult.dimension != Dimension::Band {
-                continue;
-            }
+            let mult_scope = Self::mult_scope_key(mult.dimension.clone(), band);
             let variant = match mult.variants.iter().find(|v| {
                 v.when
                     .as_ref()
@@ -664,7 +679,7 @@ impl SpecEngine {
             if !validate_value_in_domain(&value, &variant.domain, domains) {
                 continue;
             }
-            let state = self.mults.entry((mult.id.clone(), band)).or_default();
+            let state = self.mults.entry((mult.id.clone(), mult_scope)).or_default();
             if state.insert(value.clone()) {
                 new_mults.push(format!("{}:{}", mult.id, value));
             }
@@ -682,6 +697,7 @@ impl SpecEngine {
             config: &self.config,
             source: &self.source,
             dest,
+            dest_call: "",
             rcvd: &empty,
         };
         let variant = self
@@ -782,10 +798,12 @@ impl SpecEngine {
             domains,
         )
         .map_err(EngineError::Exchange)?;
+        let call_text = call.as_str().to_string();
         let ctx = EvalContext {
             config: &self.config,
             source: &self.source,
             dest: &dest,
+            dest_call: &call_text,
             rcvd: &parsed,
         };
         let mut would_be = Vec::new();
@@ -808,7 +826,7 @@ impl SpecEngine {
             }
             let seen = self
                 .mults
-                .get(&(mult.id.clone(), band))
+                .get(&(mult.id.clone(), Self::mult_scope_key(mult.dimension.clone(), band)))
                 .map(|s| s.contains(&value))
                 .unwrap_or(false);
             if !seen {
@@ -827,8 +845,10 @@ impl SpecEngine {
             if id != mult_id {
                 continue;
             }
-            if band.is_some() && band != Some(*b) {
-                continue;
+            if let Some(query_band) = band {
+                if *b != Some(query_band) && b.is_some() {
+                    continue;
+                }
             }
             out.extend(values.iter().cloned());
         }
@@ -853,6 +873,7 @@ impl SpecEngine {
             config: &self.config,
             source: &self.source,
             dest: &self.source,
+            dest_call: "",
             rcvd: &empty,
         };
         let variant = match mult.variants.iter().find(|v| {
@@ -865,6 +886,7 @@ impl SpecEngine {
             None => return Vec::new(),
         };
         let mut all = match &variant.domain {
+            DomainRef::Any => Vec::new(),
             DomainRef::Range { min, max } => (*min..=*max).map(|v| v.to_string()).collect(),
             DomainRef::External { name } => domains.values(name).unwrap_or_default(),
             DomainRef::List(v) => v.clone(),
@@ -1019,6 +1041,7 @@ fn validate_config(
         config,
         source,
         dest: source,
+        dest_call: "",
         rcvd: &empty,
     };
     for field in &spec.config_fields {
@@ -1037,6 +1060,7 @@ fn validate_config(
         if let (Some(value), Some(domain)) = (config.get(&field.id), field.domain.as_ref()) {
             let text = value.as_text();
             let valid = match domain {
+                DomainRef::Any => true,
                 DomainRef::Range { min, max } => value
                     .as_i64()
                     .map(|v| v >= *min && v <= *max)
@@ -1162,399 +1186,14 @@ impl StationResolver for InMemoryResolver {
     }
 }
 
-pub mod definitions {
-    use super::*;
-
-    pub fn all() -> Vec<ContestSpec> {
-        vec![cqww_cw(), arrl_dx(), naqp()]
-    }
-
-    pub fn by_id(id: &str) -> Option<ContestSpec> {
-        all().into_iter().find(|spec| spec.id == id)
-    }
-
-    pub fn cqww_cw() -> ContestSpec {
-        ContestSpec {
-            id: "cqww_cw".to_string(),
-            name: "CQ World-Wide DX Contest (CW)".to_string(),
-            cabrillo_contest: "CQ-WW-CW".to_string(),
-            bands: vec![
-                Band::B160,
-                Band::B80,
-                Band::B40,
-                Band::B20,
-                Band::B15,
-                Band::B10,
-            ],
-            modes: vec![Mode::CW],
-            dupe_dimension: Dimension::Band,
-            valid_qso: vec![],
-            exchange: ExchangeSpec {
-                received_variants: vec![ExchangeVariant {
-                    when: None,
-                    fields: vec![
-                        ExchangeField::required("rst", FieldType::Rst),
-                        ExchangeField {
-                            domain: Some(DomainRef::Range { min: 1, max: 40 }),
-                            ..ExchangeField::required("zone", FieldType::Int)
-                        },
-                    ],
-                }],
-                sent_variants: vec![SentVariant {
-                    when: None,
-                    fields: vec![
-                        SentField {
-                            id: "rst".to_string(),
-                            value: SentValue::Const("599".to_string()),
-                            normalize_upper_trim: false,
-                        },
-                        SentField {
-                            id: "zone".to_string(),
-                            value: SentValue::Config("my_cq_zone".to_string()),
-                            normalize_upper_trim: false,
-                        },
-                    ],
-                }],
-            },
-            multipliers: vec![
-                MultiplierSpec {
-                    id: "zone".to_string(),
-                    dimension: Dimension::Band,
-                    variants: vec![MultiplierVariant {
-                        when: None,
-                        key: FieldRef::Rcvd("zone".to_string()),
-                        domain: DomainRef::Range { min: 1, max: 40 },
-                    }],
-                },
-                MultiplierSpec {
-                    id: "country".to_string(),
-                    dimension: Dimension::Band,
-                    variants: vec![MultiplierVariant {
-                        when: None,
-                        key: FieldRef::DestDxcc,
-                        domain: DomainRef::External {
-                            name: "dxcc_entities".to_string(),
-                        },
-                    }],
-                },
-            ],
-            points: vec![
-                PointRule {
-                    when: Some(Predicate::Eq(
-                        Operand::Field(FieldRef::SourceDxcc),
-                        Operand::Field(FieldRef::DestDxcc),
-                    )),
-                    value: 0,
-                },
-                PointRule {
-                    when: Some(Predicate::Ne(
-                        Operand::Field(FieldRef::SourceContinent),
-                        Operand::Field(FieldRef::DestContinent),
-                    )),
-                    value: 3,
-                },
-                PointRule {
-                    when: Some(Predicate::And(vec![
-                        Predicate::Eq(
-                            Operand::Field(FieldRef::SourceContinent),
-                            Operand::Field(FieldRef::DestContinent),
-                        ),
-                        Predicate::Ne(
-                            Operand::Field(FieldRef::SourceDxcc),
-                            Operand::Field(FieldRef::DestDxcc),
-                        ),
-                        Predicate::Eq(
-                            Operand::Field(FieldRef::SourceContinent),
-                            Operand::Value(Value::Text("NA".to_string())),
-                        ),
-                    ])),
-                    value: 2,
-                },
-                PointRule {
-                    when: Some(Predicate::And(vec![
-                        Predicate::Eq(
-                            Operand::Field(FieldRef::SourceContinent),
-                            Operand::Field(FieldRef::DestContinent),
-                        ),
-                        Predicate::Ne(
-                            Operand::Field(FieldRef::SourceDxcc),
-                            Operand::Field(FieldRef::DestDxcc),
-                        ),
-                    ])),
-                    value: 1,
-                },
-                PointRule {
-                    when: None,
-                    value: 0,
-                },
-            ],
-            config_fields: vec![ConfigField {
-                id: "my_cq_zone".to_string(),
-                required: true,
-                required_when: None,
-                domain: Some(DomainRef::Range { min: 1, max: 40 }),
-            }],
-        }
-    }
-
-    pub fn arrl_dx() -> ContestSpec {
-        ContestSpec {
-            id: "arrl_dx".to_string(),
-            name: "ARRL International DX Contest".to_string(),
-            cabrillo_contest: "ARRL-DX".to_string(),
-            bands: vec![
-                Band::B160,
-                Band::B80,
-                Band::B40,
-                Band::B20,
-                Band::B15,
-                Band::B10,
-            ],
-            modes: vec![Mode::CW, Mode::SSB],
-            dupe_dimension: Dimension::Band,
-            valid_qso: vec![(
-                Predicate::Ne(
-                    Operand::Field(FieldRef::SourceIsWve),
-                    Operand::Field(FieldRef::DestIsWve),
-                ),
-                "ARRL DX requires W/VE <-> DX contacts only".to_string(),
-            )],
-            exchange: ExchangeSpec {
-                received_variants: vec![
-                    ExchangeVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                            Operand::Value(Value::Bool(true)),
-                        )),
-                        fields: vec![
-                            ExchangeField::required("rst", FieldType::Rst),
-                            ExchangeField::required("power", FieldType::Power),
-                        ],
-                    },
-                    ExchangeVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                            Operand::Value(Value::Bool(false)),
-                        )),
-                        fields: vec![
-                            ExchangeField::required("rst", FieldType::Rst),
-                            ExchangeField {
-                                domain: Some(DomainRef::External {
-                                    name: "arrl_dx_wve_multipliers".to_string(),
-                                }),
-                                ..ExchangeField::required("sp", FieldType::Enum)
-                            },
-                        ],
-                    },
-                ],
-                sent_variants: vec![
-                    SentVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                            Operand::Value(Value::Bool(true)),
-                        )),
-                        fields: vec![
-                            SentField {
-                                id: "rst".to_string(),
-                                value: SentValue::Const("599".to_string()),
-                                normalize_upper_trim: false,
-                            },
-                            SentField {
-                                id: "sp".to_string(),
-                                value: SentValue::Config("my_state_province".to_string()),
-                                normalize_upper_trim: true,
-                            },
-                        ],
-                    },
-                    SentVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                            Operand::Value(Value::Bool(false)),
-                        )),
-                        fields: vec![
-                            SentField {
-                                id: "rst".to_string(),
-                                value: SentValue::Const("599".to_string()),
-                                normalize_upper_trim: false,
-                            },
-                            SentField {
-                                id: "power".to_string(),
-                                value: SentValue::Config("my_power_sent".to_string()),
-                                normalize_upper_trim: true,
-                            },
-                        ],
-                    },
-                ],
-            },
-            multipliers: vec![MultiplierSpec {
-                id: "dx_mult".to_string(),
-                dimension: Dimension::Band,
-                variants: vec![
-                    MultiplierVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                            Operand::Value(Value::Bool(true)),
-                        )),
-                        key: FieldRef::DestDxcc,
-                        domain: DomainRef::External {
-                            name: "dxcc_entities_excluding_w_ve".to_string(),
-                        },
-                    },
-                    MultiplierVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                            Operand::Value(Value::Bool(false)),
-                        )),
-                        key: FieldRef::Rcvd("sp".to_string()),
-                        domain: DomainRef::External {
-                            name: "arrl_dx_wve_multipliers".to_string(),
-                        },
-                    },
-                ],
-            }],
-            points: vec![PointRule {
-                when: None,
-                value: 3,
-            }],
-            config_fields: vec![
-                ConfigField {
-                    id: "my_is_wve".to_string(),
-                    required: true,
-                    required_when: None,
-                    domain: None,
-                },
-                ConfigField {
-                    id: "my_state_province".to_string(),
-                    required: false,
-                    required_when: Some(Predicate::Eq(
-                        Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                        Operand::Value(Value::Bool(true)),
-                    )),
-                    domain: Some(DomainRef::External {
-                        name: "arrl_dx_wve_multipliers".to_string(),
-                    }),
-                },
-                ConfigField {
-                    id: "my_power_sent".to_string(),
-                    required: false,
-                    required_when: Some(Predicate::Eq(
-                        Operand::Field(FieldRef::Config("my_is_wve".to_string())),
-                        Operand::Value(Value::Bool(false)),
-                    )),
-                    domain: None,
-                },
-            ],
-        }
-    }
-
-    pub fn naqp() -> ContestSpec {
-        ContestSpec {
-            id: "naqp".to_string(),
-            name: "North American QSO Party".to_string(),
-            cabrillo_contest: "NAQP".to_string(),
-            bands: vec![
-                Band::B160,
-                Band::B80,
-                Band::B40,
-                Band::B20,
-                Band::B15,
-                Band::B10,
-            ],
-            modes: vec![Mode::CW, Mode::SSB, Mode::RTTY],
-            dupe_dimension: Dimension::Band,
-            valid_qso: vec![],
-            exchange: ExchangeSpec {
-                received_variants: vec![
-                    ExchangeVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::DestIsNa),
-                            Operand::Value(Value::Bool(true)),
-                        )),
-                        fields: vec![
-                            ExchangeField {
-                                normalize_upper_trim: true,
-                                ..ExchangeField::required("name", FieldType::String)
-                            },
-                            ExchangeField {
-                                domain: Some(DomainRef::External {
-                                    name: "naqp_multipliers".to_string(),
-                                }),
-                                ..ExchangeField::required("loc", FieldType::Enum)
-                            },
-                        ],
-                    },
-                    ExchangeVariant {
-                        when: Some(Predicate::Eq(
-                            Operand::Field(FieldRef::DestIsNa),
-                            Operand::Value(Value::Bool(false)),
-                        )),
-                        fields: vec![
-                            ExchangeField {
-                                normalize_upper_trim: true,
-                                ..ExchangeField::required("name", FieldType::String)
-                            },
-                            ExchangeField {
-                                required: false,
-                                accept: vec!["DX".to_string()],
-                                ..ExchangeField::required("loc", FieldType::Literal)
-                            },
-                        ],
-                    },
-                ],
-                sent_variants: vec![SentVariant {
-                    when: None,
-                    fields: vec![
-                        SentField {
-                            id: "name".to_string(),
-                            value: SentValue::Config("my_name".to_string()),
-                            normalize_upper_trim: true,
-                        },
-                        SentField {
-                            id: "loc".to_string(),
-                            value: SentValue::Config("my_loc".to_string()),
-                            normalize_upper_trim: true,
-                        },
-                    ],
-                }],
-            },
-            multipliers: vec![MultiplierSpec {
-                id: "na_mult".to_string(),
-                dimension: Dimension::Band,
-                variants: vec![MultiplierVariant {
-                    when: None,
-                    key: FieldRef::Rcvd("loc".to_string()),
-                    domain: DomainRef::External {
-                        name: "naqp_multipliers".to_string(),
-                    },
-                }],
-            }],
-            points: vec![PointRule {
-                when: None,
-                value: 1,
-            }],
-            config_fields: vec![
-                ConfigField {
-                    id: "my_name".to_string(),
-                    required: true,
-                    required_when: None,
-                    domain: None,
-                },
-                ConfigField {
-                    id: "my_loc".to_string(),
-                    required: true,
-                    required_when: None,
-                    domain: Some(DomainRef::External {
-                        name: "naqp_multipliers".to_string(),
-                    }),
-                },
-            ],
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn load_spec(id: &str) -> ContestSpec {
+        let path = format!("{}/specs/{id}.json", env!("CARGO_MANIFEST_DIR"));
+        ContestSpec::from_path(path).expect("spec should load")
+    }
 
     fn base_domains() -> InMemoryDomainProvider {
         let mut d = InMemoryDomainProvider::new();
@@ -1590,7 +1229,7 @@ mod tests {
 
     #[test]
     fn cqww_spec_scores_and_tracks_mults() {
-        let spec = definitions::cqww_cw();
+        let spec = load_spec("cqww_cw");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "DL1ABC",
@@ -1620,7 +1259,7 @@ mod tests {
 
     #[test]
     fn arrl_dx_validates_wve_to_dx_only() {
-        let spec = definitions::arrl_dx();
+        let spec = load_spec("arrl_dx");
         let mut resolver = InMemoryResolver::new();
         resolver.insert("K1ZZ", ResolvedStation::new("W", Continent::NA, true, true));
         let domains = base_domains();
@@ -1647,7 +1286,7 @@ mod tests {
 
     #[test]
     fn arrl_dx_dx_station_counts_sp_multiplier_from_exchange() {
-        let spec = definitions::arrl_dx();
+        let spec = load_spec("arrl_dx");
         let mut resolver = InMemoryResolver::new();
         resolver.insert("K1AR", ResolvedStation::new("W", Continent::NA, true, true));
         let domains = base_domains();
@@ -1672,7 +1311,7 @@ mod tests {
 
     #[test]
     fn naqp_non_na_exchange_has_no_multiplier() {
-        let spec = definitions::naqp();
+        let spec = load_spec("naqp");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "JA1ABC",
@@ -1700,7 +1339,7 @@ mod tests {
 
     #[test]
     fn needed_mults_returns_domain_minus_worked() {
-        let spec = definitions::cqww_cw();
+        let spec = load_spec("cqww_cw");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "DL1ABC",
@@ -1724,7 +1363,7 @@ mod tests {
 
     #[test]
     fn spec_session_wraps_apply_and_queries() {
-        let spec = definitions::cqww_cw();
+        let spec = load_spec("cqww_cw");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "DL1ABC",
@@ -1747,7 +1386,7 @@ mod tests {
 
     #[test]
     fn replay_reports_indexed_error() {
-        let spec = definitions::arrl_dx();
+        let spec = load_spec("arrl_dx");
         let mut resolver = InMemoryResolver::new();
         resolver.insert("K1AR", ResolvedStation::new("W", Continent::NA, true, true));
         let domains = base_domains();
@@ -1777,16 +1416,61 @@ mod tests {
     }
 
     #[test]
-    fn contest_registry_returns_known_specs() {
-        let all = definitions::all();
-        assert_eq!(all.len(), 3);
-        let spec = definitions::by_id("naqp").unwrap();
-        assert_eq!(spec.name, "North American QSO Party");
+    fn contest_spec_files_load() {
+        let cqww = load_spec("cqww_cw");
+        assert_eq!(cqww.name, "CQ World-Wide DX Contest (CW)");
+
+        let arrl = load_spec("arrl_dx");
+        assert_eq!(arrl.name, "ARRL International DX Contest");
+
+        let naqp = load_spec("naqp");
+        assert_eq!(naqp.name, "North American QSO Party");
+
+        let cwt = load_spec("cwt");
+        assert_eq!(cwt.name, "CWops CWT");
+    }
+
+    #[test]
+    fn global_multiplier_counts_once_across_bands() {
+        let spec = load_spec("cwt");
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let first = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "AL MA",
+            )
+            .unwrap();
+        assert_eq!(first.new_mults, vec!["call:K1ABC"]);
+
+        let second = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B40,
+                Callsign::new("K1ABC"),
+                "AL MA",
+            )
+            .unwrap();
+        assert!(second.new_mults.is_empty());
     }
 
     #[test]
     fn config_validation_enforces_required_and_conditional_fields() {
-        let spec = definitions::arrl_dx();
+        let spec = load_spec("arrl_dx");
         let source = ResolvedStation::new("W", Continent::NA, true, true);
         let mut config = HashMap::new();
         config.insert("my_is_wve".to_string(), Value::Bool(true));
@@ -1805,7 +1489,7 @@ mod tests {
 
     #[test]
     fn session_config_validation_rejects_invalid_domain_values() {
-        let spec = definitions::naqp();
+        let spec = load_spec("naqp");
         let resolver = InMemoryResolver::new();
         let domains = base_domains();
         let source = ResolvedStation::new("W", Continent::NA, true, true);
@@ -1884,7 +1568,7 @@ config_fields: []
 
     #[test]
     fn sent_exchange_generation_works_for_arrl_variants() {
-        let spec = definitions::arrl_dx();
+        let spec = load_spec("arrl_dx");
         let mut resolver = InMemoryResolver::new();
         resolver.insert("K1AR", ResolvedStation::new("W", Continent::NA, true, true));
         let domains = base_domains();
@@ -1903,7 +1587,7 @@ config_fields: []
 
     #[test]
     fn cabrillo_export_includes_qso_lines() {
-        let spec = definitions::cqww_cw();
+        let spec = load_spec("cqww_cw");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "DL1ABC",
@@ -1939,7 +1623,7 @@ config_fields: []
 
     #[test]
     fn power_parser_accepts_common_formats() {
-        let spec = definitions::arrl_dx();
+        let spec = load_spec("arrl_dx");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "DL1ABC",
@@ -1969,7 +1653,7 @@ config_fields: []
 
     #[test]
     fn name_and_location_normalization_handles_aliases() {
-        let spec = definitions::naqp();
+        let spec = load_spec("naqp");
         let mut resolver = InMemoryResolver::new();
         resolver.insert(
             "VE1ABC",
