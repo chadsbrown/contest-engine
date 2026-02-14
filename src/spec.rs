@@ -436,6 +436,48 @@ fn eval_predicate(ctx: &EvalContext<'_>, pred: &Predicate) -> bool {
     }
 }
 
+fn operand_uses_scope(operand: &Operand, scope: Scope) -> bool {
+    match operand {
+        Operand::Field(field) => field.scope == scope,
+        Operand::Value(_) => false,
+    }
+}
+
+fn predicate_uses_scope(pred: &Predicate, scope: Scope) -> bool {
+    match pred {
+        Predicate::Eq(left, right) | Predicate::Ne(left, right) => {
+            operand_uses_scope(left, scope.clone()) || operand_uses_scope(right, scope)
+        }
+        Predicate::And(items) | Predicate::Or(items) => {
+            items.iter().any(|p| predicate_uses_scope(p, scope.clone()))
+        }
+        Predicate::Not(inner) => predicate_uses_scope(inner, scope),
+        Predicate::Between(field, ..) | Predicate::In(field, ..) => field.scope == scope,
+    }
+}
+
+fn key_expr_uses_scope(expr: &KeyExpr, scope: Scope) -> bool {
+    match expr {
+        KeyExpr::Field(field) => field.scope == scope,
+        KeyExpr::Op(KeyExprOp::Concat(parts)) => parts.iter().any(|part| match part {
+            KeyExprPart::Field(field) => field.scope == scope,
+            KeyExprPart::Const(_) => false,
+        }),
+    }
+}
+
+fn variant_requires_exchange_data(variant: &MultiplierVariant) -> bool {
+    if key_expr_uses_scope(&variant.key, Scope::Rcvd) || key_expr_uses_scope(&variant.key, Scope::Sent)
+    {
+        return true;
+    }
+    variant
+        .when
+        .as_ref()
+        .map(|p| predicate_uses_scope(p, Scope::Rcvd) || predicate_uses_scope(p, Scope::Sent))
+        .unwrap_or(false)
+}
+
 fn normalize_text(input: &str, upper_trim: bool) -> String {
     if upper_trim {
         input.trim().to_ascii_uppercase()
@@ -980,6 +1022,84 @@ impl SpecEngine {
         })
     }
 
+    pub fn classify_call(
+        &self,
+        resolver: &dyn StationResolver,
+        domains: &dyn DomainProvider,
+        band: Band,
+        call: Callsign,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.classify_call_with_mode(resolver, domains, band, Mode::CW, call)
+    }
+
+    pub fn classify_call_with_mode(
+        &self,
+        resolver: &dyn StationResolver,
+        domains: &dyn DomainProvider,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+    ) -> Result<CandidateSummary, EngineError> {
+        if !self.spec.modes.contains(&mode) {
+            return Err(EngineError::InvalidQso(format!(
+                "mode {:?} is not allowed for contest {}",
+                mode, self.spec.id
+            )));
+        }
+        let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode);
+        let is_dupe = self.dupes.contains(&(dupe_scope.0, dupe_scope.1, call.clone()));
+        let dest = resolver.resolve(&call).map_err(EngineError::Resolve)?;
+        let call_text = call.as_str().to_string();
+        let empty = HashMap::new();
+        let ctx = EvalContext {
+            config: &self.config,
+            source: &self.source,
+            dest: &dest,
+            dest_call: &call_text,
+            rcvd: &empty,
+            sent: &empty,
+        };
+
+        let mut would_be = Vec::new();
+        for mult in &self.spec.multipliers {
+            let variant = match mult
+                .variants
+                .iter()
+                .filter(|v| !variant_requires_exchange_data(v))
+                .find(|v| {
+                    v.when
+                        .as_ref()
+                        .map(|p| eval_predicate(&ctx, p))
+                        .unwrap_or(true)
+                }) {
+                Some(v) => v,
+                None => continue,
+            };
+            let value = match eval_key_expr(&ctx, &variant.key) {
+                Some(v) => v,
+                None => continue,
+            };
+            if !validate_value_in_domain(&value, &variant.domain, domains) {
+                continue;
+            }
+            let seen = self
+                .mults
+                .get(&{
+                    let s = Self::scope_key(mult.dimension.clone(), band, mode);
+                    (mult.id.clone(), s.0, s.1)
+                })
+                .map(|s| s.contains(&value))
+                .unwrap_or(false);
+            if !seen {
+                would_be.push(format!("{}:{}", mult.id, value));
+            }
+        }
+        Ok(CandidateSummary {
+            is_dupe,
+            would_be_new_mults: would_be,
+        })
+    }
+
     pub fn worked_mults(&self, mult_id: &str, band: Option<Band>) -> Vec<String> {
         self.worked_mults_scoped(mult_id, band, None)
     }
@@ -1182,6 +1302,25 @@ where
             call,
             raw_exchange,
         )
+    }
+
+    pub fn classify_call(
+        &self,
+        band: Band,
+        call: Callsign,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.engine
+            .classify_call(&self.resolver, &self.domains, band, call)
+    }
+
+    pub fn classify_call_with_mode(
+        &self,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.engine
+            .classify_call_with_mode(&self.resolver, &self.domains, band, mode, call)
     }
 
     pub fn worked_mults(&self, mult_id: &str, band: Option<Band>) -> Vec<String> {
@@ -1599,6 +1738,43 @@ mod tests {
         assert_eq!(session.worked_mults("country", Some(Band::B20)), vec!["DL"]);
         let needed = session.needed_mults("zone", Some(Band::B20));
         assert!(!needed.contains(&"14".to_string()));
+    }
+
+    #[test]
+    fn classify_call_without_exchange_uses_dest_only_multiplier_data() {
+        let spec = load_spec("cqww_cw");
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "DL1ABC",
+            ResolvedStation::new("DL", Continent::EU, false, false),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_cq_zone".to_string(), Value::Int(5));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let pre = engine
+            .classify_call(&resolver, &domains, Band::B20, Callsign::new("DL1ABC"))
+            .unwrap();
+        assert!(!pre.is_dupe);
+        assert_eq!(pre.would_be_new_mults, vec!["country:DL"]);
+
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("DL1ABC"),
+                "599 14",
+            )
+            .unwrap();
+
+        let post = engine
+            .classify_call(&resolver, &domains, Band::B20, Callsign::new("DL1ABC"))
+            .unwrap();
+        assert!(post.is_dupe);
+        assert!(post.would_be_new_mults.is_empty());
     }
 
     #[test]
