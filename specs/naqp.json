@@ -1,0 +1,44 @@
+{
+  "id": "naqp",
+  "name": "North American QSO Party",
+  "cabrillo_contest": "NAQP",
+  "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
+  "modes": ["CW", "SSB", "RTTY"],
+  "dupe_dimension": "Band",
+  "valid_qso": [],
+  "exchange": {
+    "received_variants": [
+      {
+        "when": {"Eq": [{"Field": "DestIsNa"}, {"Value": {"Bool": true}}]},
+        "fields": [
+          {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true},
+          {"id": "loc", "field_type": "Enum", "required": true, "domain": {"External": {"name": "naqp_multipliers"}}, "accept": [], "normalize_upper_trim": false}
+        ]
+      },
+      {
+        "when": {"Eq": [{"Field": "DestIsNa"}, {"Value": {"Bool": false}}]},
+        "fields": [
+          {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true},
+          {"id": "loc", "field_type": "Literal", "required": false, "domain": null, "accept": ["DX"], "normalize_upper_trim": false}
+        ]
+      }
+    ],
+    "sent_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "name", "value": {"Config": "my_name"}, "normalize_upper_trim": true},
+          {"id": "loc", "value": {"Config": "my_loc"}, "normalize_upper_trim": true}
+        ]
+      }
+    ]
+  },
+  "multipliers": [
+    {"id": "na_mult", "dimension": "Band", "variants": [{"when": null, "key": {"Rcvd": "loc"}, "domain": {"External": {"name": "naqp_multipliers"}}}]}
+  ],
+  "points": [{"when": null, "value": 1}],
+  "config_fields": [
+    {"id": "my_name", "required": true, "required_when": null, "domain": null},
+    {"id": "my_loc", "required": true, "required_when": null, "domain": {"External": {"name": "naqp_multipliers"}}}
+  ]
+}

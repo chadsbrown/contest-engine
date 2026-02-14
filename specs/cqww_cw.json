@@ -1,0 +1,50 @@
+{
+  "id": "cqww_cw",
+  "name": "CQ World-Wide DX Contest (CW)",
+  "cabrillo_contest": "CQ-WW-CW",
+  "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
+  "modes": ["CW"],
+  "dupe_dimension": "Band",
+  "valid_qso": [],
+  "exchange": {
+    "received_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "rst", "field_type": "Rst", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
+          {"id": "zone", "field_type": "Int", "required": true, "domain": {"Range": {"min": 1, "max": 40}}, "accept": [], "normalize_upper_trim": false}
+        ]
+      }
+    ],
+    "sent_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
+          {"id": "zone", "value": {"Config": "my_cq_zone"}, "normalize_upper_trim": false}
+        ]
+      }
+    ]
+  },
+  "multipliers": [
+    {"id": "zone", "dimension": "Band", "variants": [{"when": null, "key": {"Rcvd": "zone"}, "domain": {"Range": {"min": 1, "max": 40}}}]},
+    {"id": "country", "dimension": "Band", "variants": [{"when": null, "key": "DestDxcc", "domain": {"External": {"name": "dxcc_entities"}}}]}
+  ],
+  "points": [
+    {"when": {"Eq": [{"Field": "SourceDxcc"}, {"Field": "DestDxcc"}]}, "value": 0},
+    {"when": {"Ne": [{"Field": "SourceContinent"}, {"Field": "DestContinent"}]}, "value": 3},
+    {"when": {"And": [
+      {"Eq": [{"Field": "SourceContinent"}, {"Field": "DestContinent"}]},
+      {"Ne": [{"Field": "SourceDxcc"}, {"Field": "DestDxcc"}]},
+      {"Eq": [{"Field": "SourceContinent"}, {"Value": {"Text": "NA"}}]}
+    ]}, "value": 2},
+    {"when": {"And": [
+      {"Eq": [{"Field": "SourceContinent"}, {"Field": "DestContinent"}]},
+      {"Ne": [{"Field": "SourceDxcc"}, {"Field": "DestDxcc"}]}
+    ]}, "value": 1},
+    {"when": null, "value": 0}
+  ],
+  "config_fields": [
+    {"id": "my_cq_zone", "required": true, "required_when": null, "domain": {"Range": {"min": 1, "max": 40}}}
+  ]
+}
