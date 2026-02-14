@@ -56,5 +56,19 @@
     {"id": "my_is_wve", "required": true, "required_when": null, "domain": null},
     {"id": "my_state_province", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": true}}]}, "domain": {"External": {"name": "arrl_dx_wve_multipliers"}}},
     {"id": "my_power_sent", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_wve"}}, {"Value": {"Bool": false}}]}, "domain": null}
-  ]
+  ],
+  "variants": {
+    "cw": {
+      "name": "CW Weekend",
+      "cabrillo_contest": "ARRL-DX-CW",
+      "allowed_modes": ["CW"],
+      "exchange": {"sent_rst_value": "599"}
+    },
+    "ssb": {
+      "name": "SSB Weekend",
+      "cabrillo_contest": "ARRL-DX-SSB",
+      "allowed_modes": ["SSB"],
+      "exchange": {"sent_rst_value": "59"}
+    }
+  }
 }

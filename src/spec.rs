@@ -1,6 +1,6 @@
 use crate::types::{Band, Callsign, Continent};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -268,6 +268,48 @@ pub struct ContestSpec {
     pub config_fields: Vec<ConfigField>,
     #[serde(default)]
     pub score: ScoreSpec,
+    #[serde(default)]
+    pub variants: BTreeMap<String, ContestVariant>,
+    #[serde(default)]
+    pub default_variant: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ContestVariant {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub cabrillo_contest: Option<String>,
+    #[serde(default)]
+    pub allowed_modes: Option<Vec<Mode>>,
+    #[serde(default)]
+    pub exchange: Option<ExchangeOverrides>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ExchangeOverrides {
+    #[serde(default)]
+    pub sent_rst_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionMeta {
+    pub variant: Option<String>,
+    pub category_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveSpec {
+    pub allowed_modes: Vec<Mode>,
+    pub cabrillo_contest: String,
+    pub exchange: EffectiveExchange,
+    pub selected_variant: Option<String>,
+    pub category_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EffectiveExchange {
+    pub sent_rst_value: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,9 +362,70 @@ impl ContestSpec {
     }
 }
 
+fn choose_variant(
+    spec: &ContestSpec,
+    requested: Option<&str>,
+) -> Result<Option<(String, ContestVariant)>, EngineError> {
+    if let Some(name) = requested {
+        let key = name.trim().to_ascii_lowercase();
+        let variant = spec
+            .variants
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| EngineError::InvalidVariant(format!("unknown variant {}", name)))?;
+        return Ok(Some((key, variant)));
+    }
+
+    if let Some(default_name) = spec.default_variant.as_ref() {
+        let key = default_name.trim().to_ascii_lowercase();
+        let variant = spec.variants.get(&key).cloned().ok_or_else(|| {
+            EngineError::InvalidVariant(format!("default variant {} not found", default_name))
+        })?;
+        return Ok(Some((key, variant)));
+    }
+
+    if spec.variants.len() == 1 {
+        let (name, variant) = spec.variants.iter().next().expect("one variant present");
+        return Ok(Some((name.clone(), variant.clone())));
+    }
+
+    Ok(None)
+}
+
+fn build_effective_spec(spec: &ContestSpec, meta: &SessionMeta) -> Result<EffectiveSpec, EngineError> {
+    let selected = choose_variant(spec, meta.variant.as_deref())?;
+    let mut allowed_modes = spec.modes.clone();
+    let mut cabrillo_contest = spec.cabrillo_contest.clone();
+    let mut exchange = EffectiveExchange::default();
+    let mut selected_name = None;
+
+    if let Some((name, variant)) = selected {
+        selected_name = Some(name);
+        if let Some(modes) = variant.allowed_modes {
+            allowed_modes = modes;
+        }
+        if let Some(contest_name) = variant.cabrillo_contest {
+            cabrillo_contest = contest_name;
+        }
+        if let Some(exchange_overrides) = variant.exchange {
+            exchange.sent_rst_value = exchange_overrides.sent_rst_value;
+        }
+    }
+
+    Ok(EffectiveSpec {
+        allowed_modes,
+        cabrillo_contest,
+        exchange,
+        selected_variant: selected_name,
+        category_mode: meta.category_mode.clone(),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
     InvalidConfig(String),
+    InvalidVariant(String),
+    InvalidMode { mode: Mode, allowed: Vec<Mode> },
     Exchange(Vec<String>),
     Resolve(String),
     InvalidQso(String),
@@ -731,6 +834,7 @@ fn validate_value_in_domain(value: &str, domain: &DomainRef, domains: &dyn Domai
 #[derive(Debug, Clone)]
 pub struct SpecEngine {
     spec: ContestSpec,
+    effective_spec: EffectiveSpec,
     config: HashMap<String, Value>,
     source: ResolvedStation,
     total_points: i64,
@@ -763,9 +867,20 @@ impl SpecEngine {
         source: ResolvedStation,
         config: HashMap<String, Value>,
     ) -> Result<Self, EngineError> {
+        Self::new_with_meta(spec, source, config, SessionMeta::default())
+    }
+
+    pub fn new_with_meta(
+        spec: ContestSpec,
+        source: ResolvedStation,
+        config: HashMap<String, Value>,
+        meta: SessionMeta,
+    ) -> Result<Self, EngineError> {
         validate_config(&spec, &source, &config, None)?;
+        let effective_spec = build_effective_spec(&spec, &meta)?;
         Ok(Self {
             spec,
+            effective_spec,
             config,
             source,
             total_points: 0,
@@ -795,11 +910,11 @@ impl SpecEngine {
         call: Callsign,
         raw_exchange: &str,
     ) -> Result<ApplySummary, EngineError> {
-        if !self.spec.modes.contains(&mode) {
-            return Err(EngineError::InvalidQso(format!(
-                "mode {:?} is not allowed for contest {}",
-                mode, self.spec.id
-            )));
+        if !self.effective_spec.allowed_modes.contains(&mode) {
+            return Err(EngineError::InvalidMode {
+                mode,
+                allowed: self.effective_spec.allowed_modes.clone(),
+            });
         }
         let dest = resolver.resolve(&call).map_err(EngineError::Resolve)?;
         let parsed = parse_received(
@@ -906,6 +1021,9 @@ impl SpecEngine {
             let normalized = normalize_text(&raw, field.normalize_upper_trim);
             out.insert(field.id.clone(), normalized);
         }
+        if let Some(sent_rst) = self.effective_spec.exchange.sent_rst_value.as_ref() {
+            out.insert("rst".to_string(), sent_rst.clone());
+        }
         Ok(out)
     }
 
@@ -917,9 +1035,15 @@ impl SpecEngine {
     ) -> String {
         let mut out = String::new();
         out.push_str("START-OF-LOG: 3.0\n");
-        out.push_str(&format!("CONTEST: {}\n", self.spec.cabrillo_contest));
+        out.push_str(&format!(
+            "CONTEST: {}\n",
+            self.effective_spec.cabrillo_contest
+        ));
         out.push_str(&format!("CALLSIGN: {}\n", my_call));
         out.push_str(&format!("CATEGORY-OPERATOR: {}\n", operator_category));
+        if let Some(category_mode) = self.effective_spec.category_mode.as_ref() {
+            out.push_str(&format!("CATEGORY-MODE: {}\n", category_mode));
+        }
         out.push_str(&format!("CLAIMED-SCORE: {}\n", self.claimed_score()));
         for qso in entries {
             let sent = qso.sent.join(" ");
@@ -979,11 +1103,11 @@ impl SpecEngine {
         call: Callsign,
         raw_exchange: &str,
     ) -> Result<CandidateSummary, EngineError> {
-        if !self.spec.modes.contains(&mode) {
-            return Err(EngineError::InvalidQso(format!(
-                "mode {:?} is not allowed for contest {}",
-                mode, self.spec.id
-            )));
+        if !self.effective_spec.allowed_modes.contains(&mode) {
+            return Err(EngineError::InvalidMode {
+                mode,
+                allowed: self.effective_spec.allowed_modes.clone(),
+            });
         }
         let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode);
         let is_dupe = self.dupes.contains(&(dupe_scope.0, dupe_scope.1, call.clone()));
@@ -1061,11 +1185,11 @@ impl SpecEngine {
         mode: Mode,
         call: Callsign,
     ) -> Result<CandidateSummary, EngineError> {
-        if !self.spec.modes.contains(&mode) {
-            return Err(EngineError::InvalidQso(format!(
-                "mode {:?} is not allowed for contest {}",
-                mode, self.spec.id
-            )));
+        if !self.effective_spec.allowed_modes.contains(&mode) {
+            return Err(EngineError::InvalidMode {
+                mode,
+                allowed: self.effective_spec.allowed_modes.clone(),
+            });
         }
         let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode);
         let is_dupe = self.dupes.contains(&(dupe_scope.0, dupe_scope.1, call.clone()));
@@ -1214,6 +1338,18 @@ impl SpecEngine {
         self.total_qsos
     }
 
+    pub fn selected_variant(&self) -> Option<&str> {
+        self.effective_spec.selected_variant.as_deref()
+    }
+
+    pub fn allowed_modes(&self) -> &[Mode] {
+        &self.effective_spec.allowed_modes
+    }
+
+    pub fn effective_cabrillo_contest(&self) -> &str {
+        &self.effective_spec.cabrillo_contest
+    }
+
     pub fn total_mults(&self) -> usize {
         self.mults.values().map(HashSet::len).sum()
     }
@@ -1263,12 +1399,40 @@ where
         resolver: R,
         domains: D,
     ) -> Result<Self, EngineError> {
+        Self::new_with_meta(
+            spec,
+            source,
+            config,
+            resolver,
+            domains,
+            SessionMeta::default(),
+        )
+    }
+
+    pub fn new_with_meta(
+        spec: ContestSpec,
+        source: ResolvedStation,
+        config: HashMap<String, Value>,
+        resolver: R,
+        domains: D,
+        meta: SessionMeta,
+    ) -> Result<Self, EngineError> {
         validate_config(&spec, &source, &config, Some(&domains))?;
         Ok(Self {
-            engine: SpecEngine::new(spec, source, config)?,
+            engine: SpecEngine::new_with_meta(spec, source, config, meta)?,
             resolver,
             domains,
         })
+    }
+
+    pub fn new_legacy(
+        spec: ContestSpec,
+        source: ResolvedStation,
+        config: HashMap<String, Value>,
+        resolver: R,
+        domains: D,
+    ) -> Result<Self, EngineError> {
+        Self::new(spec, source, config, resolver, domains)
     }
 
     pub fn from_engine(engine: SpecEngine, resolver: R, domains: D) -> Self {
@@ -2087,11 +2251,151 @@ config_fields: []
     #[test]
     fn loads_repo_contestspec_files() {
         let cqww = ContestSpec::from_path("specs/cqww_cw.json").unwrap();
+        let cqww_family = ContestSpec::from_path("specs/cqww.json").unwrap();
         let arrl = ContestSpec::from_path("specs/arrl_dx.json").unwrap();
         let naqp = ContestSpec::from_path("specs/naqp.json").unwrap();
         assert_eq!(cqww.id, "cqww_cw");
+        assert_eq!(cqww_family.id, "cqww");
         assert_eq!(arrl.id, "arrl_dx");
         assert_eq!(naqp.id, "naqp");
+    }
+
+    #[test]
+    fn variant_selection_and_mode_enforcement_work() {
+        let spec = ContestSpec::from_path("specs/cqww.json").unwrap();
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "DL1ABC",
+            ResolvedStation::new("DL", Continent::EU, false, false),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_cq_zone".to_string(), Value::Int(5));
+        let mut session = SpecSession::new_with_meta(
+            spec,
+            source,
+            config,
+            resolver,
+            domains,
+            SessionMeta {
+                variant: Some("cw".to_string()),
+                category_mode: Some("CW".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(session.engine().selected_variant(), Some("cw"));
+        assert_eq!(session.engine().effective_cabrillo_contest(), "CQ-WW-CW");
+        assert_eq!(session.engine().allowed_modes(), &[Mode::CW]);
+
+        let wrong_mode = session
+            .apply_qso_with_mode(Band::B20, Mode::SSB, Callsign::new("DL1ABC"), "599 14")
+            .unwrap_err();
+        assert!(matches!(
+            wrong_mode,
+            EngineError::InvalidMode {
+                mode: Mode::SSB,
+                ..
+            }
+        ));
+
+        let ok = session
+            .apply_qso_with_mode(Band::B20, Mode::CW, Callsign::new("DL1ABC"), "599 14")
+            .unwrap();
+        assert!(!ok.is_dupe);
+    }
+
+    #[test]
+    fn default_variant_is_selected_when_not_provided() {
+        let spec_json = r#"{
+  "id":"demo_variant_default",
+  "name":"Demo Variant Default",
+  "cabrillo_contest":"DEMO",
+  "bands":["B20"],
+  "modes":["CW","SSB"],
+  "dupe_dimension":"Band",
+  "valid_qso":[],
+  "exchange":{"received_variants":[{"when":null,"fields":[{"id":"rst","field_type":"Rst","required":true,"domain":null,"accept":[],"normalize_upper_trim":false}]}]},
+  "multipliers":[],
+  "points":[{"when":null,"value":1}],
+  "score":{"formula":"points_times_mults"},
+  "config_fields":[],
+  "default_variant":"cw",
+  "variants":{
+    "cw":{"cabrillo_contest":"DEMO-CW","allowed_modes":["CW"]},
+    "ssb":{"cabrillo_contest":"DEMO-SSB","allowed_modes":["SSB"]}
+  }
+}"#;
+        let spec = ContestSpec::from_json_str(spec_json).unwrap();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let config = HashMap::new();
+        let engine = SpecEngine::new_with_meta(spec, source, config, SessionMeta::default()).unwrap();
+        assert_eq!(engine.selected_variant(), Some("cw"));
+        assert_eq!(engine.effective_cabrillo_contest(), "DEMO-CW");
+        assert_eq!(engine.allowed_modes(), &[Mode::CW]);
+    }
+
+    #[test]
+    fn unknown_variant_is_rejected() {
+        let spec = ContestSpec::from_path("specs/cqww.json").unwrap();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_cq_zone".to_string(), Value::Int(5));
+        let err = SpecEngine::new_with_meta(
+            spec,
+            source,
+            config,
+            SessionMeta {
+                variant: Some("nope".to_string()),
+                category_mode: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, EngineError::InvalidVariant(_)));
+    }
+
+    #[test]
+    fn variant_cabrillo_header_uses_effective_contest() {
+        let spec = ContestSpec::from_path("specs/arrl_dx.json").unwrap();
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert("K1AR", ResolvedStation::new("W", Continent::NA, true, true));
+        let domains = base_domains();
+        let source = ResolvedStation::new("DL", Continent::EU, false, false);
+        let mut config = HashMap::new();
+        config.insert("my_is_wve".to_string(), Value::Bool(false));
+        config.insert("my_power_sent".to_string(), Value::Text("100".to_string()));
+        let mut session = SpecSession::new_with_meta(
+            spec,
+            source,
+            config,
+            resolver,
+            domains,
+            SessionMeta {
+                variant: Some("ssb".to_string()),
+                category_mode: Some("SSB".to_string()),
+            },
+        )
+        .unwrap();
+        let _ = session
+            .apply_qso_with_mode(Band::B20, Mode::SSB, Callsign::new("K1AR"), "59 MA")
+            .unwrap();
+        let cab = session.export_cabrillo(
+            "DL1AAA",
+            "SINGLE-OP",
+            &[CabrilloQso {
+                freq_khz: 14250,
+                mode: Mode::SSB,
+                date_utc: "2026-03-08".to_string(),
+                time_utc: "0001".to_string(),
+                my_call: "DL1AAA".to_string(),
+                their_call: "K1AR".to_string(),
+                sent: vec!["59".to_string(), "100".to_string()],
+                received: vec!["59".to_string(), "MA".to_string()],
+            }],
+        );
+        assert!(cab.contains("CONTEST: ARRL-DX-SSB"));
+        assert!(cab.contains("CATEGORY-MODE: SSB"));
     }
 
     #[test]

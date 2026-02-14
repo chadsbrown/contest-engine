@@ -3,8 +3,9 @@
 This directory contains runtime contest definition files for the spec-driven engine.
 
 Current files:
-- `specs/cqww_cw.json`
-- `specs/arrl_dx.json`
+- `specs/cqww_cw.json` (legacy single-variant)
+- `specs/cqww.json` (family + variants)
+- `specs/arrl_dx.json` (family + variants)
 - `specs/naqp.json`
 - `specs/cwt.json`
 - `specs/domains/arrl_dx_wve_multipliers.txt`
