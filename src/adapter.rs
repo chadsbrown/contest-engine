@@ -1,6 +1,7 @@
 use crate::spec::{DomainProvider, ResolvedStation, StationResolver};
 use crate::types::Callsign;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 pub struct StaticStationResolver {
@@ -48,7 +49,7 @@ where
 
 #[derive(Debug, Default, Clone)]
 pub struct StaticDomainProvider {
-    map: HashMap<String, Vec<String>>,
+    map: HashMap<String, Arc<[String]>>,
 }
 
 impl StaticDomainProvider {
@@ -57,18 +58,17 @@ impl StaticDomainProvider {
     }
 
     pub fn insert(&mut self, name: impl AsRef<str>, values: Vec<String>) {
-        self.map.insert(
-            name.as_ref().to_string(),
-            values
-                .into_iter()
-                .map(|v| v.trim().to_ascii_uppercase())
-                .collect(),
-        );
+        let normalized: Vec<String> = values
+            .into_iter()
+            .map(|v| v.trim().to_ascii_uppercase())
+            .collect();
+        self.map
+            .insert(name.as_ref().to_string(), Arc::<[String]>::from(normalized));
     }
 }
 
 impl DomainProvider for StaticDomainProvider {
-    fn values(&self, domain_name: &str) -> Option<Vec<String>> {
+    fn values(&self, domain_name: &str) -> Option<Arc<[String]>> {
         self.map.get(domain_name).cloned()
     }
 }
@@ -110,6 +110,6 @@ mod tests {
         let mut domains = StaticDomainProvider::new();
         domains.insert("naqp_multipliers", vec!["ma".to_string(), "nh".to_string()]);
         let values = domains.values("naqp_multipliers").unwrap();
-        assert_eq!(values, vec!["MA".to_string(), "NH".to_string()]);
+        assert_eq!(values.as_ref(), ["MA".to_string(), "NH".to_string()]);
     }
 }

@@ -1,5 +1,6 @@
 use crate::spec::{DomainProvider, ResolvedStation, StationResolver};
 use crate::types::{Callsign, Continent};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalCallInfo {
@@ -59,12 +60,13 @@ impl<S> DomainProvider for DomainProviderAdapter<S>
 where
     S: ExternalDomainSource,
 {
-    fn values(&self, domain_name: &str) -> Option<Vec<String>> {
+    fn values(&self, domain_name: &str) -> Option<Arc<[String]>> {
         self.source.lookup_domain(domain_name).map(|values| {
-            values
+            let normalized: Vec<String> = values
                 .into_iter()
                 .map(|v| v.trim().to_ascii_uppercase())
-                .collect()
+                .collect();
+            Arc::<[String]>::from(normalized)
         })
     }
 }
@@ -119,6 +121,6 @@ mod tests {
         );
         let adapter = DomainProviderAdapter::new(src);
         let values = adapter.values("naqp_multipliers").unwrap();
-        assert_eq!(values, vec!["MA".to_string(), "NH".to_string()]);
+        assert_eq!(values.as_ref(), ["MA".to_string(), "NH".to_string()]);
     }
 }
