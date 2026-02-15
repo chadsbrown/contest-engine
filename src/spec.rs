@@ -31,6 +31,9 @@ pub enum Mode {
     CW,
     SSB,
     RTTY,
+    FT8,
+    FT4,
+    DIGITAL,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,14 +182,6 @@ fn parse_dimension_str(raw: &str) -> Result<Dimension, String> {
                     return Err("period dimension must be > 0".to_string());
                 }
                 Ok(Dimension::Period { minutes })
-            } else if raw.trim() == "Band" {
-                Ok(Dimension::Band)
-            } else if raw.trim() == "BandMode" {
-                Ok(Dimension::BandMode)
-            } else if raw.trim() == "Global" {
-                Ok(Dimension::Global)
-            } else if raw.trim() == "Mode" {
-                Ok(Dimension::Mode)
             } else {
                 Err(format!("unsupported dimension '{}'", raw))
             }
@@ -527,6 +522,45 @@ pub enum EngineError {
     InvalidQso(String),
 }
 
+impl std::fmt::Display for ExchangeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.field_id {
+            Some(field) => write!(f, "{:?} {}: {}", self.kind, field, self.message),
+            None => write!(f, "{:?}: {}", self.kind, self.message),
+        }
+    }
+}
+
+impl std::error::Error for ExchangeError {}
+
+impl std::fmt::Display for EngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EngineError::InvalidConfig(msg) => write!(f, "invalid config: {}", msg),
+            EngineError::InvalidVariant(msg) => write!(f, "invalid variant: {}", msg),
+            EngineError::InvalidMode { mode, allowed } => {
+                write!(f, "invalid mode {:?}; allowed: {:?}", mode, allowed)
+            }
+            EngineError::Exchange(errors) => {
+                if errors.is_empty() {
+                    write!(f, "exchange parse failed")
+                } else {
+                    let rendered = errors
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    write!(f, "exchange parse failed: {}", rendered)
+                }
+            }
+            EngineError::Resolve(msg) => write!(f, "resolve error: {}", msg),
+            EngineError::InvalidQso(msg) => write!(f, "invalid qso: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for EngineError {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExchangeErrorKind {
     Missing,
@@ -566,10 +600,13 @@ pub enum ReplayError {
     AtIndex(usize, EngineError),
 }
 
+#[must_use]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplySummary {
     pub is_dupe: bool,
     pub qso_points: i64,
+    pub qso_points_rule_index: Option<usize>,
+    pub qso_points_is_fallback: bool,
     pub new_mults: Vec<String>,
     pub sent_exchange: HashMap<String, String>,
     pub total_qsos: u32,
@@ -578,12 +615,14 @@ pub struct ApplySummary {
     pub claimed_score: i64,
 }
 
+#[must_use]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateSummary {
     pub is_dupe: bool,
     pub would_be_new_mults: Vec<String>,
 }
 
+#[must_use]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateEvalLite {
     pub is_dupe: bool,
@@ -786,6 +825,32 @@ fn normalize_power_token(input: &str) -> Result<String, String> {
     Ok(watts.to_string())
 }
 
+fn is_valid_rst(token: &str) -> bool {
+    fn is_digit_1_to_9(c: char) -> bool {
+        matches!(c, '1'..='9')
+    }
+    fn is_digit_or_n(c: char) -> bool {
+        is_digit_1_to_9(c) || c == 'N'
+    }
+
+    let mut chars = token.chars();
+    let Some(r) = chars.next() else {
+        return false;
+    };
+    let Some(s) = chars.next() else {
+        return false;
+    };
+    if !matches!(r, '1'..='5') {
+        return false;
+    }
+
+    match chars.next() {
+        None => is_digit_1_to_9(s),
+        Some(t) if is_digit_or_n(s) && is_digit_or_n(t) => chars.next().is_none(),
+        Some(_) => false,
+    }
+}
+
 fn parse_field(
     field: &ExchangeField,
     token: Option<&str>,
@@ -806,11 +871,8 @@ fn parse_field(
     let parsed = match field.field_type {
         FieldType::Rst => {
             let upper = token.trim().to_ascii_uppercase();
-            if matches!(
-                upper.as_str(),
-                "599" | "59" | "5NN" | "5N" | "NN" | "9NN" | "579" | "589"
-            ) {
-                Value::Text("599".to_string())
+            if is_valid_rst(&upper) {
+                Value::Text(upper)
             } else {
                 return Err(ExchangeError {
                     field_id: Some(field.id.clone()),
@@ -1147,13 +1209,13 @@ impl SpecEngine {
             .dupes
             .contains(&(dupe_scope.0, dupe_scope.1, dupe_scope.2, call.clone()))
         {
-            return Ok(self.summary(true, 0, Vec::new(), HashMap::new()));
+            return Ok(self.summary(true, 0, None, false, Vec::new(), HashMap::new()));
         }
         self.dupes
             .insert((dupe_scope.0, dupe_scope.1, dupe_scope.2, call));
         self.total_qsos += 1;
 
-        let qso_points = self.compute_points(&ctx);
+        let (qso_points, qso_points_rule_index, qso_points_is_fallback) = self.compute_points(&ctx);
         self.total_points += qso_points;
         *self.points_by_band.entry(band).or_insert(0) += qso_points;
         let mut new_mults = Vec::new();
@@ -1204,7 +1266,14 @@ impl SpecEngine {
             );
         }
 
-        Ok(self.summary(false, qso_points, new_mults, sent_exchange))
+        Ok(self.summary(
+            false,
+            qso_points,
+            qso_points_rule_index,
+            qso_points_is_fallback,
+            new_mults,
+            sent_exchange,
+        ))
     }
 
     pub fn sent_exchange_for(
@@ -1296,7 +1365,8 @@ impl SpecEngine {
         inputs: &[LogInput],
     ) -> Result<(), ReplayError> {
         for (idx, input) in inputs.iter().enumerate() {
-            self.apply_qso(
+            let _ = self
+                .apply_qso(
                 resolver,
                 domains,
                 input.band,
@@ -1628,7 +1698,11 @@ impl SpecEngine {
     }
 
     fn sum_band_mults(&self) -> usize {
-        self.mults.values().map(HashSet::len).sum()
+        self.mults
+            .iter()
+            .filter(|((_id, band, _mode, _period), _values)| band.is_some())
+            .map(|(_, values)| values.len())
+            .sum()
     }
 
     fn mults_for_band(&self, band: Band) -> usize {
@@ -1651,30 +1725,34 @@ impl SpecEngine {
         }
     }
 
-    fn compute_points(&self, ctx: &EvalContext<'_>) -> i64 {
-        for rule in &self.spec.points {
+    fn compute_points(&self, ctx: &EvalContext<'_>) -> (i64, Option<usize>, bool) {
+        for (idx, rule) in self.spec.points.iter().enumerate() {
             let pass = rule
                 .when
                 .as_ref()
                 .map(|w| eval_predicate(ctx, w))
                 .unwrap_or(true);
             if pass {
-                return rule.value;
+                return (rule.value, Some(idx), rule.when.is_none());
             }
         }
-        0
+        (0, None, false)
     }
 
     fn summary(
         &self,
         is_dupe: bool,
         qso_points: i64,
+        qso_points_rule_index: Option<usize>,
+        qso_points_is_fallback: bool,
         new_mults: Vec<String>,
         sent_exchange: HashMap<String, String>,
     ) -> ApplySummary {
         ApplySummary {
             is_dupe,
             qso_points,
+            qso_points_rule_index,
+            qso_points_is_fallback,
             new_mults,
             sent_exchange,
             total_qsos: self.total_qsos(),
@@ -1723,6 +1801,7 @@ where
         })
     }
 
+    #[deprecated(note = "use SpecSession::new instead")]
     pub fn new_legacy(
         spec: ContestSpec,
         source: ResolvedStation,
@@ -1932,6 +2011,7 @@ fn mode_to_cabrillo(mode: Mode) -> &'static str {
         Mode::CW => "CW",
         Mode::SSB => "PH",
         Mode::RTTY => "RY",
+        Mode::FT8 | Mode::FT4 | Mode::DIGITAL => "DG",
     }
 }
 
@@ -2130,6 +2210,50 @@ mod tests {
             ],
         );
         d
+    }
+
+    #[test]
+    fn rst_field_accepts_and_preserves_logged_values() {
+        let domains = base_domains();
+        let rst = ExchangeField::required("rst", FieldType::Rst);
+        let cases = [
+            ("59", "59"),
+            ("57", "57"),
+            ("599", "599"),
+            ("579", "579"),
+            ("449", "449"),
+            ("5nn", "5NN"),
+            (" 58 ", "58"),
+        ];
+
+        for (input, expected) in cases {
+            let parsed = parse_field(&rst, Some(input), &domains).unwrap().unwrap();
+            assert_eq!(parsed, Value::Text(expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn rst_field_rejects_invalid_values() {
+        let domains = base_domains();
+        let rst = ExchangeField::required("rst", FieldType::Rst);
+
+        for input in ["5999", "5N", "NN", "9NN", "00", "A59"] {
+            let err = parse_field(&rst, Some(input), &domains).unwrap_err();
+            assert_eq!(err.kind, ExchangeErrorKind::Invalid);
+        }
+    }
+
+    #[test]
+    fn compact_rst_plus_serial_parses_with_non_599_rst() {
+        let spec = load_spec("cqww_cw");
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let dest = ResolvedStation::new("DL", Continent::EU, false, false);
+        let config = HashMap::new();
+
+        let parsed = parse_received(&spec, &config, &source, &dest, "44914", &domains).unwrap();
+        assert_eq!(parsed.get("rst"), Some(&Value::Text("449".to_string())));
+        assert_eq!(parsed.get("zone"), Some(&Value::Int(14)));
     }
 
     #[test]
@@ -3067,6 +3191,128 @@ config_fields: []
         }
 
         assert_ne!(ea.claimed_score(), eb.claimed_score());
+    }
+
+    #[test]
+    fn points_times_sum_band_mults_excludes_global_mults() {
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert("K1AAA", ResolvedStation::new("W", Continent::NA, true, true));
+        resolver.insert("K1BBB", ResolvedStation::new("W", Continent::NA, true, true));
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+
+        let mut base = load_spec("naqp");
+        base.multipliers.push(MultiplierSpec {
+            id: "call".to_string(),
+            dimension: Dimension::Global,
+            variants: vec![MultiplierVariant {
+                when: None,
+                key: KeyExpr::Field(FieldRef::dest("call")),
+                domain: DomainRef::Any,
+            }],
+        });
+
+        let mut a = base.clone();
+        a.score.formula = ScoreFormula::PointsTimesTotalMults;
+        let mut b = base;
+        b.score.formula = ScoreFormula::PointsTimesSumBandMults;
+
+        let mut cfg = HashMap::new();
+        cfg.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        cfg.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+
+        let mut ea = SpecEngine::new(a, source.clone(), cfg.clone()).unwrap();
+        let mut eb = SpecEngine::new(b, source, cfg).unwrap();
+
+        for engine in [&mut ea, &mut eb] {
+            let _ = engine
+                .apply_qso(
+                    &resolver,
+                    &domains,
+                    Band::B20,
+                    Callsign::new("K1AAA"),
+                    "AL MA",
+                )
+                .unwrap();
+            let _ = engine
+                .apply_qso(
+                    &resolver,
+                    &domains,
+                    Band::B40,
+                    Callsign::new("K1BBB"),
+                    "BOB NH",
+                )
+                .unwrap();
+        }
+
+        assert!(ea.total_mults() > eb.sum_band_mults());
+        assert_ne!(ea.claimed_score(), eb.claimed_score());
+    }
+
+    #[test]
+    fn points_summary_distinguishes_explicit_zero_from_fallback_zero() {
+        let spec_json = r#"{
+  "id":"points_reason_demo",
+  "name":"Points Reason Demo",
+  "cabrillo_contest":"DEMO",
+  "bands":["B20"],
+  "modes":["CW"],
+  "dupe_dimension":"Band",
+  "valid_qso":[],
+  "exchange":{"received_variants":[{"when":null,"fields":[
+    {"id":"rst","field_type":"Rst","required":true,"domain":null,"accept":[],"normalize_upper_trim":false}
+  ]}]},
+  "multipliers":[],
+  "points":[
+    {"when":{"Eq":[{"Field":{"scope":"SOURCE","key":"dxcc"}},{"Field":{"scope":"DEST","key":"dxcc"}}]},"value":0},
+    {"when":null,"value":0}
+  ],
+  "score":{"formula":"points_times_mults"},
+  "config_fields":[]
+}"#;
+        let spec = ContestSpec::from_json_str(spec_json).unwrap();
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert("K1AAA", ResolvedStation::new("W", Continent::NA, true, true));
+        resolver.insert("DL1ABC", ResolvedStation::new("DL", Continent::EU, false, false));
+        let domains = base_domains();
+
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let config = HashMap::new();
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let explicit_zero = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1AAA"),
+                "599",
+            )
+            .unwrap();
+        assert_eq!(explicit_zero.qso_points, 0);
+        assert_eq!(explicit_zero.qso_points_rule_index, Some(0));
+        assert!(!explicit_zero.qso_points_is_fallback);
+
+        let fallback_zero = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("DL1ABC"),
+                "599",
+            )
+            .unwrap();
+        assert_eq!(fallback_zero.qso_points, 0);
+        assert_eq!(fallback_zero.qso_points_rule_index, Some(1));
+        assert!(fallback_zero.qso_points_is_fallback);
+    }
+
+    #[test]
+    fn engine_error_implements_std_error() {
+        let err = EngineError::InvalidConfig("x".to_string());
+        let boxed: Box<dyn std::error::Error> = Box::new(err);
+        assert!(boxed.to_string().contains("invalid config"));
     }
 
     #[test]

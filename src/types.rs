@@ -8,6 +8,12 @@ pub enum Band {
     B20,
     B15,
     B10,
+    B60,
+    B30,
+    B17,
+    B12,
+    B6,
+    B2,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

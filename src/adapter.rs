@@ -1,7 +1,6 @@
-use crate::spec::{DomainProvider, ResolvedStation, StationResolver};
+use crate::spec::{InMemoryDomainProvider, ResolvedStation, StationResolver};
 use crate::types::Callsign;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 pub struct StaticStationResolver {
@@ -47,35 +46,12 @@ where
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct StaticDomainProvider {
-    map: HashMap<String, Arc<[String]>>,
-}
-
-impl StaticDomainProvider {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert(&mut self, name: impl AsRef<str>, values: Vec<String>) {
-        let normalized: Vec<String> = values
-            .into_iter()
-            .map(|v| v.trim().to_ascii_uppercase())
-            .collect();
-        self.map
-            .insert(name.as_ref().to_string(), Arc::<[String]>::from(normalized));
-    }
-}
-
-impl DomainProvider for StaticDomainProvider {
-    fn values(&self, domain_name: &str) -> Option<Arc<[String]>> {
-        self.map.get(domain_name).cloned()
-    }
-}
+pub type StaticDomainProvider = InMemoryDomainProvider;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spec::DomainProvider;
     use crate::types::Continent;
 
     #[test]
