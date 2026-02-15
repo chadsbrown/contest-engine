@@ -1,91 +1,65 @@
 use adif_parser::{Record, parse_adi};
 use contest_engine::spec::{
-    ContestSpec, Mode, ResolvedStation, SpecEngine, StationResolver, Value, domain_packs,
+    ContestSpec, DomainProvider, Mode, ResolvedStation, SpecEngine, StationResolver, Value,
 };
 use contest_engine::types::{Band, Callsign, Continent};
+use station_data::{CtyDb, DomainPack};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::path::Path;
+use std::sync::Arc;
 
-#[derive(Clone)]
-struct CtyEntry {
-    dxcc: String,
-    continent: Continent,
+struct StationDataResolver {
+    db: CtyDb,
 }
 
-struct CtyResolver {
-    exact: HashMap<String, CtyEntry>,
-    prefixes: Vec<(String, CtyEntry)>,
-}
-
-impl CtyResolver {
+impl StationDataResolver {
     fn from_file(path: &str) -> Result<Self, String> {
-        let raw = fs::read_to_string(path).map_err(|e| format!("failed reading cty file: {e}"))?;
-        Ok(Self::parse(&raw))
-    }
-
-    fn parse(raw: &str) -> Self {
-        let mut exact = HashMap::new();
-        let mut prefixes = Vec::new();
-        let mut current: Option<CtyEntry> = None;
-        let mut alias_buf = String::new();
-
-        for line in raw.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if is_cty_header(line) {
-                if let Some(entry) = current.as_ref() {
-                    parse_aliases(&alias_buf, entry, &mut exact, &mut prefixes);
-                }
-                alias_buf.clear();
-                current = parse_cty_header(line);
-            } else {
-                alias_buf.push_str(line);
-                alias_buf.push(' ');
-            }
-        }
-        if let Some(entry) = current.as_ref() {
-            parse_aliases(&alias_buf, entry, &mut exact, &mut prefixes);
-        }
-
-        prefixes.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        Self { exact, prefixes }
+        let db = CtyDb::from_path(Path::new(path))
+            .map_err(|e| format!("failed reading/parsing cty file: {e}"))?;
+        Ok(Self { db })
     }
 
     fn resolve_call(&self, call: &str) -> Option<ResolvedStation> {
-        let c = call.trim().to_ascii_uppercase();
-        if let Some(entry) = self.exact.get(&c) {
-            return Some(to_station(entry));
-        }
-        for (prefix, entry) in &self.prefixes {
-            if c.starts_with(prefix) {
-                return Some(to_station(entry));
-            }
-        }
-        None
+        let hit = self.db.lookup(call)?;
+        let continent = parse_continent_code(&hit.continent)?;
+        Some(ResolvedStation::new(
+            hit.dxcc,
+            continent,
+            hit.is_wve,
+            hit.is_na,
+        ))
     }
 }
 
-impl StationResolver for CtyResolver {
+impl StationResolver for StationDataResolver {
     fn resolve(&self, call: &Callsign) -> Result<ResolvedStation, String> {
         self.resolve_call(call.as_str())
             .ok_or_else(|| format!("unknown callsign {}", call.as_str()))
     }
 }
 
-fn to_station(entry: &CtyEntry) -> ResolvedStation {
-    let is_wve = matches!(entry.dxcc.as_str(), "K" | "W" | "VE");
-    let is_na = entry.continent == Continent::NA;
-    ResolvedStation::new(entry.dxcc.clone(), entry.continent, is_wve, is_na)
+#[derive(Clone)]
+struct StationDataDomains {
+    pack: DomainPack,
 }
 
-fn is_cty_header(line: &str) -> bool {
-    line.matches(':').count() >= 7 && !line.ends_with(';') && !line.ends_with(',')
+impl StationDataDomains {
+    fn from_dir(path: &str) -> Result<Self, String> {
+        let pack = DomainPack::from_dir(Path::new(path))
+            .map_err(|e| format!("failed reading/parsing domain directory: {e}"))?;
+        Ok(Self { pack })
+    }
 }
 
-fn parse_continent(input: &str) -> Option<Continent> {
+impl DomainProvider for StationDataDomains {
+    fn values(&self, domain_name: &str) -> Option<Arc<[String]>> {
+        self.pack.values(domain_name)
+    }
+}
+
+fn parse_continent_code(input: &str) -> Option<Continent> {
     match input.trim().to_ascii_uppercase().as_str() {
         "NA" => Some(Continent::NA),
         "SA" => Some(Continent::SA),
@@ -95,74 +69,6 @@ fn parse_continent(input: &str) -> Option<Continent> {
         "OC" => Some(Continent::OC),
         "AN" => Some(Continent::AN),
         _ => None,
-    }
-}
-
-fn parse_cty_header(line: &str) -> Option<CtyEntry> {
-    let parts: Vec<&str> = line.split(':').collect();
-    if parts.len() < 8 {
-        return None;
-    }
-    let continent = parse_continent(parts[3])?;
-    let dxcc = parts[7].trim().trim_start_matches('*').to_ascii_uppercase();
-    if dxcc.is_empty() {
-        return None;
-    }
-    Some(CtyEntry { dxcc, continent })
-}
-
-fn parse_aliases(
-    aliases: &str,
-    entry: &CtyEntry,
-    exact: &mut HashMap<String, CtyEntry>,
-    prefixes: &mut Vec<(String, CtyEntry)>,
-) {
-    let aliases = aliases.trim().trim_end_matches(';');
-    for alias in aliases.split(',') {
-        let alias = alias.trim();
-        if alias.is_empty() {
-            continue;
-        }
-        let (base, is_exact) = parse_alias(alias);
-        if base.is_empty() {
-            continue;
-        }
-        if is_exact {
-            exact.insert(base.clone(), entry.clone());
-        } else {
-            prefixes.push((base, entry.clone()));
-        }
-    }
-}
-
-fn parse_alias(alias: &str) -> (String, bool) {
-    let mut s = alias;
-    let mut is_exact = false;
-    if s.starts_with('=') {
-        is_exact = true;
-        s = &s[1..];
-    }
-    let mut out = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '(' => skip_until(&mut chars, ')'),
-            '[' => skip_until(&mut chars, ']'),
-            '{' => skip_until(&mut chars, '}'),
-            '<' => skip_until(&mut chars, '>'),
-            '~' => skip_until(&mut chars, '~'),
-            _ => out.push(c),
-        }
-    }
-    (out.trim().to_ascii_uppercase(), is_exact)
-}
-
-fn skip_until(chars: &mut std::iter::Peekable<std::str::Chars<'_>>, end: char) {
-    while let Some(&c) = chars.peek() {
-        chars.next();
-        if c == end {
-            break;
-        }
     }
 }
 
@@ -373,8 +279,9 @@ fn main() -> Result<(), String> {
     } else {
         None
     };
-    let domains = domain_packs::load_standard_domain_pack(domains_dir)?;
-    let resolver = CtyResolver::from_file(cty_path)?;
+
+    let domains = StationDataDomains::from_dir(domains_dir)?;
+    let resolver = StationDataResolver::from_file(cty_path)?;
     let source = resolver
         .resolve_call(my_call)
         .ok_or_else(|| format!("my call not resolvable from cty: {my_call}"))?;
