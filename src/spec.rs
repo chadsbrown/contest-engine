@@ -1091,6 +1091,10 @@ where
 }
 
 impl SpecEngine {
+    pub fn multiplier_ids(&self) -> Vec<&str> {
+        self.spec.multipliers.iter().map(|m| m.id.as_str()).collect()
+    }
+
     fn scope_key(
         dimension: Dimension,
         band: Band,
