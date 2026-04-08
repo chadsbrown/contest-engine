@@ -2112,6 +2112,12 @@ pub mod domain_packs {
         let path_ref = path.as_ref();
         let raw = fs::read_to_string(path_ref)
             .map_err(|e| format!("failed reading {}: {}", path_ref.display(), e))?;
+        parse_domain_file_content(&raw)
+    }
+
+    /// Parse the raw content of a domain file (one value per line, `#` for comments).
+    /// Used by both the filesystem loader and the embedded loader.
+    pub(crate) fn parse_domain_file_content(raw: &str) -> Result<Vec<String>, String> {
         let mut out = Vec::new();
         for line in raw.lines() {
             let trimmed = line.trim();
@@ -2147,6 +2153,121 @@ pub mod domain_packs {
             load_domain_file(root.join("dxcc_entities.txt"))?,
         );
         Ok(provider)
+    }
+}
+
+/// Embedded, compile-time specs and domain data.
+///
+/// This module bakes the contents of `specs/*.json` and `specs/domains/*.txt`
+/// into the binary using `include_str!`, so consumers don't need the contest-engine
+/// source tree on disk at runtime. This is the recommended way to consume
+/// contest specs in deployed applications.
+pub mod embedded {
+    use super::domain_packs::parse_domain_file_content;
+    use super::{ContestSpec, InMemoryDomainProvider};
+
+    // Contest specs (JSON)
+    const CQWW_JSON: &str = include_str!("../specs/cqww.json");
+    const CQWW_CW_JSON: &str = include_str!("../specs/cqww_cw.json");
+    const CWT_JSON: &str = include_str!("../specs/cwt.json");
+    const ARRL_DX_JSON: &str = include_str!("../specs/arrl_dx.json");
+    const NAQP_JSON: &str = include_str!("../specs/naqp.json");
+
+    // Domain files (plain text, one value per line)
+    const ARRL_DX_WVE_MULTS: &str =
+        include_str!("../specs/domains/arrl_dx_wve_multipliers.txt");
+    const NAQP_MULTS: &str = include_str!("../specs/domains/naqp_multipliers.txt");
+    const DXCC_ENTITIES: &str = include_str!("../specs/domains/dxcc_entities.txt");
+    const DXCC_ENTITIES_EX_WVE: &str =
+        include_str!("../specs/domains/dxcc_entities_excluding_w_ve.txt");
+
+    /// All embedded contest spec IDs, in the order they're tried by lookups.
+    pub const SPEC_IDS: &[&str] = &["cqww", "cqww_cw", "cwt", "arrl_dx", "naqp"];
+
+    /// Look up an embedded contest spec by its ID (the filename stem, without `.json`).
+    ///
+    /// Returns `None` if no embedded spec matches. The returned `ContestSpec` is
+    /// parsed fresh from the embedded JSON each call; callers that look up the
+    /// same spec repeatedly may want to cache it.
+    pub fn spec_by_id(id: &str) -> Option<ContestSpec> {
+        let id = id.trim().to_ascii_lowercase();
+        let json = match id.as_str() {
+            "cqww" => CQWW_JSON,
+            "cqww_cw" => CQWW_CW_JSON,
+            "cwt" => CWT_JSON,
+            "arrl_dx" => ARRL_DX_JSON,
+            "naqp" => NAQP_JSON,
+            _ => return None,
+        };
+        ContestSpec::from_json_str(json).ok()
+    }
+
+    /// Build the standard domain provider from embedded domain files.
+    ///
+    /// Equivalent to `domain_packs::load_standard_domain_pack` but without
+    /// touching the filesystem. All four standard domains are always available.
+    pub fn standard_domain_pack() -> InMemoryDomainProvider {
+        let mut provider = InMemoryDomainProvider::new();
+        provider.insert(
+            "arrl_dx_wve_multipliers",
+            parse_domain_file_content(ARRL_DX_WVE_MULTS)
+                .expect("embedded arrl_dx_wve_multipliers parse"),
+        );
+        provider.insert(
+            "naqp_multipliers",
+            parse_domain_file_content(NAQP_MULTS).expect("embedded naqp_multipliers parse"),
+        );
+        provider.insert(
+            "dxcc_entities_excluding_w_ve",
+            parse_domain_file_content(DXCC_ENTITIES_EX_WVE)
+                .expect("embedded dxcc_entities_excluding_w_ve parse"),
+        );
+        provider.insert(
+            "dxcc_entities",
+            parse_domain_file_content(DXCC_ENTITIES).expect("embedded dxcc_entities parse"),
+        );
+        provider
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn all_declared_spec_ids_parse() {
+            for id in SPEC_IDS {
+                let spec = spec_by_id(id).unwrap_or_else(|| {
+                    panic!("embedded spec '{}' not found via spec_by_id", id)
+                });
+                // Basic sanity: every contest has an id field
+                assert!(
+                    !spec.id.is_empty(),
+                    "embedded spec '{}' has empty id after parse",
+                    id
+                );
+            }
+        }
+
+        #[test]
+        fn spec_by_id_unknown_returns_none() {
+            assert!(spec_by_id("not_a_real_contest").is_none());
+        }
+
+        #[test]
+        fn spec_by_id_is_case_insensitive() {
+            assert!(spec_by_id("CQWW").is_some());
+            assert!(spec_by_id("CqWw").is_some());
+        }
+
+        #[test]
+        fn embedded_domain_pack_has_all_four_domains() {
+            let provider = standard_domain_pack();
+            use super::super::DomainProvider;
+            assert!(provider.values("arrl_dx_wve_multipliers").is_some());
+            assert!(provider.values("naqp_multipliers").is_some());
+            assert!(provider.values("dxcc_entities").is_some());
+            assert!(provider.values("dxcc_entities_excluding_w_ve").is_some());
+        }
     }
 }
 
