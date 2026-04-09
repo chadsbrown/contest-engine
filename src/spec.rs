@@ -2178,6 +2178,7 @@ pub mod embedded {
     const CWT_JSON: &str = include_str!("../specs/cwt.json");
     const ARRL_DX_JSON: &str = include_str!("../specs/arrl_dx.json");
     const NAQP_JSON: &str = include_str!("../specs/naqp.json");
+    const MST_JSON: &str = include_str!("../specs/mst.json");
 
     // Domain files (plain text, one value per line)
     const ARRL_DX_WVE_MULTS: &str =
@@ -2188,7 +2189,7 @@ pub mod embedded {
         include_str!("../specs/domains/dxcc_entities_excluding_w_ve.txt");
 
     /// All embedded contest spec IDs, in the order they're tried by lookups.
-    pub const SPEC_IDS: &[&str] = &["cqww", "cqww_cw", "cwt", "arrl_dx", "naqp"];
+    pub const SPEC_IDS: &[&str] = &["cqww", "cqww_cw", "cwt", "arrl_dx", "naqp", "mst"];
 
     /// Look up an embedded contest spec by its ID (the filename stem, without `.json`).
     ///
@@ -2203,6 +2204,7 @@ pub mod embedded {
             "cwt" => CWT_JSON,
             "arrl_dx" => ARRL_DX_JSON,
             "naqp" => NAQP_JSON,
+            "mst" => MST_JSON,
             _ => return None,
         };
         ContestSpec::from_json_str(json).ok()
