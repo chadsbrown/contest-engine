@@ -1987,6 +1987,12 @@ where
         &self.engine
     }
 
+    /// Returns a mutable reference to the resolver, allowing callers to
+    /// insert new station entries after session construction.
+    pub fn resolver_mut(&mut self) -> &mut R {
+        &mut self.resolver
+    }
+
     pub fn replay(&mut self, inputs: &[LogInput]) -> Result<(), ReplayError> {
         self.engine.replay(&self.resolver, &self.domains, inputs)
     }
