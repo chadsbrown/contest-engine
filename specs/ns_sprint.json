@@ -1,0 +1,40 @@
+{
+  "id": "ns_sprint",
+  "name": "NCCC NS Sprint",
+  "cabrillo_contest": "NCCC-SPRINT",
+  "bands": ["B160", "B80", "B40", "B20", "B15"],
+  "modes": ["CW"],
+  "dupe_dimension": "Band",
+  "valid_qso": [],
+  "exchange": {
+    "received_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "nr", "field_type": "Int", "required": true, "domain": {"Range": {"min": 1, "max": 99999}}, "accept": [], "normalize_upper_trim": false},
+          {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true},
+          {"id": "loc", "field_type": "Enum", "required": true, "domain": {"External": {"name": "ns_sprint_multipliers"}}, "accept": [], "normalize_upper_trim": false}
+        ]
+      }
+    ],
+    "sent_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "name", "value": {"Config": "my_name"}, "normalize_upper_trim": true},
+          {"id": "loc", "value": {"Config": "my_loc"}, "normalize_upper_trim": true}
+        ]
+      }
+    ],
+    "sent_serial": {"field_id": "serial", "start": 1, "width": 3}
+  },
+  "multipliers": [
+    {"id": "loc_mult", "dimension": "Band", "variants": [{"when": null, "key": {"scope": "RCVD", "key": "loc"}, "domain": {"External": {"name": "ns_sprint_multipliers"}}}]}
+  ],
+  "points": [{"when": null, "value": 1}],
+  "score": {"formula": "points_times_mults"},
+  "config_fields": [
+    {"id": "my_name", "required": true, "required_when": null, "domain": null},
+    {"id": "my_loc", "required": true, "required_when": null, "domain": {"External": {"name": "ns_sprint_multipliers"}}}
+  ]
+}
