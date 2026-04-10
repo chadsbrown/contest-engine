@@ -2180,6 +2180,7 @@ pub mod embedded {
     const NAQP_JSON: &str = include_str!("../specs/naqp.json");
     const MST_JSON: &str = include_str!("../specs/mst.json");
     const NS_SPRINT_JSON: &str = include_str!("../specs/ns_sprint.json");
+    const SS_JSON: &str = include_str!("../specs/ss.json");
 
     // Domain files (plain text, one value per line)
     const ARRL_DX_WVE_MULTS: &str =
@@ -2190,9 +2191,10 @@ pub mod embedded {
         include_str!("../specs/domains/dxcc_entities_excluding_w_ve.txt");
     const NS_SPRINT_MULTS: &str =
         include_str!("../specs/domains/ns_sprint_multipliers.txt");
+    const SS_SECTIONS: &str = include_str!("../specs/domains/ss_sections.txt");
 
     /// All embedded contest spec IDs, in the order they're tried by lookups.
-    pub const SPEC_IDS: &[&str] = &["cqww", "cqww_cw", "cwt", "arrl_dx", "naqp", "mst", "ns_sprint"];
+    pub const SPEC_IDS: &[&str] = &["cqww", "cqww_cw", "cwt", "arrl_dx", "naqp", "mst", "ns_sprint", "ss"];
 
     /// Look up an embedded contest spec by its ID (the filename stem, without `.json`).
     ///
@@ -2209,6 +2211,7 @@ pub mod embedded {
             "naqp" => NAQP_JSON,
             "mst" => MST_JSON,
             "ns_sprint" => NS_SPRINT_JSON,
+            "ss" => SS_JSON,
             _ => return None,
         };
         ContestSpec::from_json_str(json).ok()
@@ -2242,6 +2245,11 @@ pub mod embedded {
             "ns_sprint_multipliers",
             parse_domain_file_content(NS_SPRINT_MULTS)
                 .expect("embedded ns_sprint_multipliers parse"),
+        );
+        provider.insert(
+            "ss_sections",
+            parse_domain_file_content(SS_SECTIONS)
+                .expect("embedded ss_sections parse"),
         );
         provider
     }

@@ -1,0 +1,58 @@
+{
+  "id": "ss",
+  "name": "ARRL November Sweepstakes",
+  "cabrillo_contest": "SS",
+  "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
+  "modes": ["CW", "SSB"],
+  "dupe_dimension": "Global",
+  "valid_qso": [
+    [{"Eq": [{"Field": {"scope": "SOURCE", "key": "is_wve"}}, {"Value": {"Bool": true}}]}, "Sweepstakes is W/VE only"],
+    [{"Eq": [{"Field": {"scope": "DEST", "key": "is_wve"}}, {"Value": {"Bool": true}}]}, "Sweepstakes is W/VE only"]
+  ],
+  "exchange": {
+    "received_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "nr", "field_type": "Int", "required": true, "domain": {"Range": {"min": 1, "max": 99999}}, "accept": [], "normalize_upper_trim": false},
+          {"id": "prec", "field_type": "Enum", "required": true, "domain": {"List": ["Q", "A", "B", "U", "M", "S"]}, "accept": [], "normalize_upper_trim": true},
+          {"id": "ck", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
+          {"id": "sec", "field_type": "Enum", "required": true, "domain": {"External": {"name": "ss_sections"}}, "accept": [], "normalize_upper_trim": true}
+        ]
+      }
+    ],
+    "sent_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "prec", "value": {"Config": "my_prec"}, "normalize_upper_trim": true},
+          {"id": "ck", "value": {"Config": "my_ck"}, "normalize_upper_trim": false},
+          {"id": "sec", "value": {"Config": "my_sec"}, "normalize_upper_trim": true}
+        ]
+      }
+    ],
+    "sent_serial": {"field_id": "nr", "start": 1, "width": 4}
+  },
+  "multipliers": [
+    {"id": "section", "dimension": "Global", "variants": [{"when": null, "key": {"scope": "RCVD", "key": "sec"}, "domain": {"External": {"name": "ss_sections"}}}]}
+  ],
+  "points": [{"when": null, "value": 2}],
+  "score": {"formula": "points_times_mults"},
+  "config_fields": [
+    {"id": "my_prec", "required": true, "required_when": null, "domain": {"List": ["Q", "A", "B", "U", "M", "S"]}},
+    {"id": "my_ck", "required": true, "required_when": null, "domain": null},
+    {"id": "my_sec", "required": true, "required_when": null, "domain": {"External": {"name": "ss_sections"}}}
+  ],
+  "variants": {
+    "cw": {
+      "name": "CW Weekend",
+      "cabrillo_contest": "SS-CW",
+      "allowed_modes": ["CW"]
+    },
+    "ssb": {
+      "name": "Phone Weekend",
+      "cabrillo_contest": "SS-SSB",
+      "allowed_modes": ["SSB"]
+    }
+  }
+}
