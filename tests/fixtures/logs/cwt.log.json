@@ -1,0 +1,21 @@
+{
+  "spec_id": "cwt",
+  "description": "CWops CWT. Global callsign multiplier, 1 pt/QSO. Tests: global mult collapses across bands; per-band dupe rejects repeat on same band.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_name": {"Text": "CHRIS"},
+    "my_xchg": {"Text": "MA"}
+  },
+  "stations": {
+    "K1ABC":  {"dxcc": "W",  "continent": "NA", "is_wve": true, "is_na": true},
+    "K2XYZ":  {"dxcc": "W",  "continent": "NA", "is_wve": true, "is_na": true},
+    "VE1ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE OH"},
+    {"band": "B40", "mode": "CW", "call": "K2XYZ",  "exchange": "BOB TX"},
+    {"band": "B20", "mode": "CW", "call": "VE1ABC", "exchange": "JEAN ON"},
+    {"band": "B40", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE OH"},
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE OH"}
+  ]
+}

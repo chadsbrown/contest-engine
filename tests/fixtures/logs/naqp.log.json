@@ -1,0 +1,25 @@
+{
+  "spec_id": "naqp",
+  "description": "North American QSO Party. Per-band loc multiplier for NA stations; DX stations contribute points only. 1 pt/QSO. Covers both exchange variants and a cross-band duplicate.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_name": {"Text": "CHRIS"},
+    "my_loc":  {"Text": "MA"}
+  },
+  "stations": {
+    "K1ABC":  {"dxcc": "W",  "continent": "NA", "is_wve": true,  "is_na": true},
+    "VE3ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true,  "is_na": true},
+    "K5XYZ":  {"dxcc": "W",  "continent": "NA", "is_wve": true,  "is_na": true},
+    "DL1ABC": {"dxcc": "DL", "continent": "EU", "is_wve": false, "is_na": false},
+    "JA1ABC": {"dxcc": "JA", "continent": "AS", "is_wve": false, "is_na": false}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE NY"},
+    {"band": "B20", "mode": "CW", "call": "VE3ABC", "exchange": "PIERRE ON"},
+    {"band": "B20", "mode": "CW", "call": "K5XYZ",  "exchange": "BOB TX"},
+    {"band": "B40", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE NY"},
+    {"band": "B20", "mode": "CW", "call": "DL1ABC", "exchange": "HANS DX"},
+    {"band": "B40", "mode": "CW", "call": "JA1ABC", "exchange": "TARO DX"},
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE NY"}
+  ]
+}

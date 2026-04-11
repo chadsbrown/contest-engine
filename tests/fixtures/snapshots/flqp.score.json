@@ -1,0 +1,24 @@
+{
+  "total_qsos": 6,
+  "dupe_qsos": 1,
+  "total_points": 11,
+  "total_mults": 7,
+  "claimed_score": 77,
+  "points_by_band": {
+    "B20": 9,
+    "B40": 2
+  },
+  "mults": {
+    "county_mult": [
+      "ALC",
+      "BAK",
+      "BRE",
+      "DAD",
+      "OSC",
+      "POL"
+    ],
+    "in_state_dxcc_mult": [],
+    "in_state_prov_mult": [],
+    "in_state_state_mult": []
+  }
+}

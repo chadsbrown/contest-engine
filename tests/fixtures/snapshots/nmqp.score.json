@@ -1,0 +1,23 @@
+{
+  "total_qsos": 7,
+  "dupe_qsos": 1,
+  "total_points": 13,
+  "total_mults": 5,
+  "claimed_score": 575,
+  "points_by_band": {
+    "B20": 9,
+    "B40": 4
+  },
+  "mults": {
+    "county_mult": [
+      "BER",
+      "DON",
+      "RIO",
+      "SFE",
+      "SJU"
+    ],
+    "in_state_dxcc_mult": [],
+    "in_state_prov_mult": [],
+    "in_state_state_mult": []
+  }
+}

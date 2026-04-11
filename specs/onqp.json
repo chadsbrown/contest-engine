@@ -1,0 +1,93 @@
+{
+  "id": "onqp",
+  "name": "Ontario QSO Party",
+  "cabrillo_contest": "ON-QSO-PARTY",
+  "bands": ["B160", "B80", "B40", "B20", "B15", "B10", "B6", "B2"],
+  "modes": ["CW", "SSB"],
+  "dupe_dimension": "BandMode",
+  "dupe_extra_rcvd_fields": ["loc"],
+  "valid_qso": [],
+  "exchange": {
+    "received_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "rst", "field_type": "Rst", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
+          {"id": "loc", "field_type": "Enum", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true}
+        ]
+      }
+    ],
+    "sent_variants": [
+      {
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": true}}]},
+        "fields": [
+          {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
+          {"id": "loc", "value": {"Config": "my_area"}, "normalize_upper_trim": true}
+        ]
+      },
+      {
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": false}}]},
+        "fields": [
+          {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
+          {"id": "loc", "value": {"Config": "my_loc"}, "normalize_upper_trim": true}
+        ]
+      }
+    ]
+  },
+  "multipliers": [
+    {
+      "id": "area_mult",
+      "dimension": "Band",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": false}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "on_multiplier_areas"}}
+        }
+      ]
+    },
+    {
+      "id": "in_ont_state_mult",
+      "dimension": "Band",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "us_states"}}
+        }
+      ]
+    },
+    {
+      "id": "in_ont_prov_mult",
+      "dimension": "Band",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "ca_provinces"}}
+        }
+      ]
+    },
+    {
+      "id": "in_ont_dxcc_mult",
+      "dimension": "Band",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "DEST", "key": "dxcc"},
+          "domain": {"External": {"name": "dxcc_entities_excluding_w_ve"}}
+        }
+      ]
+    }
+  ],
+  "points": [
+    {"when": {"DestCallIn": {"External": {"name": "onqp_bonus_stations"}}}, "value": 10},
+    {"when": null, "value": 2}
+  ],
+  "score": {"formula": "points_times_mults"},
+  "config_fields": [
+    {"id": "my_is_on", "required": true, "required_when": null, "domain": null},
+    {"id": "my_area", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": true}}]}, "domain": {"External": {"name": "on_multiplier_areas"}}},
+    {"id": "my_loc", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": false}}]}, "domain": null}
+  ]
+}

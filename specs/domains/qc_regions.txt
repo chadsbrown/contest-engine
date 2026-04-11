@@ -1,0 +1,19 @@
+# Quebec QSO Party administrative regions. 17 total.
+# Source: https://quebecqsoparty.org/rules-quebec-qso-party/ Appendix I
+BSA
+SLS
+QUE
+MAU
+ETE
+MTL
+OTS
+ATE
+CND
+NDQ
+GIM
+CAS
+LVL
+LDE
+LNS
+MEE
+CDQ

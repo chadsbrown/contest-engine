@@ -1,0 +1,5 @@
+# Delaware QSO Party county abbreviations. 3 total.
+# Source: https://www.fsarc.org/qsoparty/rules-2024.html
+NDE
+KDE
+SDE

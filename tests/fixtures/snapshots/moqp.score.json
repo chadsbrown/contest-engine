@@ -1,0 +1,23 @@
+{
+  "total_qsos": 8,
+  "dupe_qsos": 1,
+  "total_points": 15,
+  "total_mults": 6,
+  "claimed_score": 290,
+  "points_by_band": {
+    "B20": 11,
+    "B40": 4
+  },
+  "mults": {
+    "county_mult": [
+      "BOO",
+      "CAL",
+      "JAC",
+      "LAF",
+      "STC",
+      "STL"
+    ],
+    "in_state_prov_mult": [],
+    "in_state_state_mult": []
+  }
+}

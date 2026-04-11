@@ -1,0 +1,26 @@
+{
+  "spec_id": "onqp",
+  "description": "Ontario QSO Party. Non-ON source works ON stations. 2 pts any mode per band; bonus stations (VA3CCO, VE3CCO, VE3ODX, VE3RHQ, VA3RAC) override to 10 pts via DestCallIn point rule; per-band multiplier area mults; rover identity. Mobile +300/area activation bonus is NOT implemented (requires per-QSO source-location tracking, future engine feature).",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_on": {"Bool": false},
+    "my_loc":   {"Text": "NY"}
+  },
+  "stations": {
+    "VE3AAA":  {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE3BBB":  {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VA3CCO":  {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE3CCO":  {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE3MOB":  {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "VE3AAA",  "exchange": "599 TOR"},
+    {"band": "B20", "mode": "SSB", "call": "VE3AAA",  "exchange": "59 TOR"},
+    {"band": "B40", "mode": "CW",  "call": "VE3BBB",  "exchange": "599 OTT"},
+    {"band": "B20", "mode": "CW",  "call": "VA3CCO",  "exchange": "599 HAM"},
+    {"band": "B40", "mode": "CW",  "call": "VE3CCO",  "exchange": "599 PEL"},
+    {"band": "B20", "mode": "CW",  "call": "VE3MOB",  "exchange": "599 NIA"},
+    {"band": "B20", "mode": "CW",  "call": "VE3MOB",  "exchange": "599 SIM"},
+    {"band": "B20", "mode": "CW",  "call": "VE3MOB",  "exchange": "599 NIA"}
+  ]
+}

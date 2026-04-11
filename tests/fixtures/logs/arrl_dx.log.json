@@ -1,0 +1,25 @@
+{
+  "spec_id": "arrl_dx",
+  "description": "ARRL International DX. W/VE to DX only. Per-band DX multiplier. 3 pts/QSO. 5 distinct DXCC entities across 3 bands. CW variant.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "variant": "cw",
+  "config": {
+    "my_is_wve": {"Bool": true},
+    "my_state_province": {"Text": "MA"}
+  },
+  "stations": {
+    "DL1ABC": {"dxcc": "DL", "continent": "EU", "is_wve": false, "is_na": false},
+    "F1XYZ":  {"dxcc": "F",  "continent": "EU", "is_wve": false, "is_na": false},
+    "G4ABC":  {"dxcc": "G",  "continent": "EU", "is_wve": false, "is_na": false},
+    "JA1ABC": {"dxcc": "JA", "continent": "AS", "is_wve": false, "is_na": false}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "DL1ABC", "exchange": "599 100"},
+    {"band": "B20", "mode": "CW", "call": "F1XYZ",  "exchange": "599 100"},
+    {"band": "B20", "mode": "CW", "call": "G4ABC",  "exchange": "599 500"},
+    {"band": "B40", "mode": "CW", "call": "DL1ABC", "exchange": "599 100"},
+    {"band": "B40", "mode": "CW", "call": "JA1ABC", "exchange": "599 5"},
+    {"band": "B15", "mode": "CW", "call": "DL1ABC", "exchange": "599 100"},
+    {"band": "B20", "mode": "CW", "call": "DL1ABC", "exchange": "599 100"}
+  ]
+}

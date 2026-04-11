@@ -69,6 +69,13 @@ pub enum Scope {
     Dest,
     Rcvd,
     Sent,
+    /// Per-QSO environment: keys `band` and `mode`, derived from the
+    /// band/mode the QSO is being applied under. Populated by the engine
+    /// at call time; unused by exchange-parse contexts, which substitute
+    /// empty values. Available only inside point rules, multiplier
+    /// variants, and bonus rules — *not* inside exchange variant
+    /// selection (where the mode/band isn't yet bound to the QSO).
+    Session,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +136,10 @@ pub enum Predicate {
     Not(Box<Predicate>),
     Between(FieldRef, i64, i64),
     In(FieldRef, Vec<String>),
+    /// Tests whether the current QSO's destination callsign appears in an
+    /// external domain list (case-insensitive). Used to match bonus stations
+    /// like K4TCG / W0MA / VA3CCO without hardcoding callsigns into the spec.
+    DestCallIn(DomainRef),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,6 +226,16 @@ pub struct ExchangeField {
     pub domain: Option<DomainRef>,
     pub accept: Vec<String>,
     pub normalize_upper_trim: bool,
+    /// Optional separator for multi-value received fields. When set, the
+    /// raw value is split on this substring at multiplier-extraction time,
+    /// and each split value produces a separate multiplier entry (subject
+    /// to per-value domain validation). The parsed field value itself
+    /// remains the full original string — this is a **multiplier-side**
+    /// split, not an exchange-parsing split. Used by state QSO parties
+    /// where county-line stations send multiple county codes in a single
+    /// QSO exchange (e.g., Florida "ALC/BAK", CQP multi-county).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_value_sep: Option<String>,
 }
 
 impl ExchangeField {
@@ -226,6 +247,7 @@ impl ExchangeField {
             domain: None,
             accept: Vec::new(),
             normalize_upper_trim: false,
+            multi_value_sep: None,
         }
     }
 }
@@ -339,10 +361,42 @@ pub struct ContestSpec {
     pub bands: Vec<Band>,
     pub modes: Vec<Mode>,
     pub dupe_dimension: Dimension,
+    /// Optional received exchange field ids whose values extend the dupe key.
+    ///
+    /// When empty (the default), dupes are keyed purely on
+    /// `(dimension_scope, callsign)` — the historical behavior.
+    /// When non-empty, the values of the listed received fields are
+    /// concatenated (in list order) with a unit-separator and appended to the
+    /// dupe key, so a mobile station sending `INMAD` is not a dupe of the
+    /// same call's earlier `INMRN` QSO on the same band/mode.
+    ///
+    /// Used by state QSO parties where mobile/rover stations are re-workable
+    /// when they cross a county or region boundary.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dupe_extra_rcvd_fields: Vec<String>,
     pub valid_qso: Vec<(Predicate, String)>,
     pub exchange: ExchangeSpec,
     pub multipliers: Vec<MultiplierSpec>,
     pub points: Vec<PointRule>,
+    /// Optional additive bonus-point rules. Applied after `points × mults`.
+    ///
+    /// Empty vector (the default) leaves scoring behavior byte-identical to
+    /// historical contests. Non-empty vectors accumulate extra points that
+    /// are added to the final score by `claimed_score()`. Used by state QSO
+    /// parties to model bonus stations (e.g. "+100 per QSO with K4TCG"),
+    /// one-time rewards (e.g. "+250 for any QSO with W1AW/5"), and
+    /// activation thresholds (e.g. "+500 per county with at least 10 QSOs").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bonus_rules: Vec<BonusRule>,
+    /// Optional whole-score multiplier driven by a config field value.
+    ///
+    /// Applied after `points × mults` and before bonus addition. When
+    /// `None` (the default), the factor is 1 and scoring is unchanged.
+    /// Used by state QSO parties that award QRP operators a x5 bonus
+    /// (NMQP, NEQSOP) or low-power operators a x2 bonus (DEQP, NMQP,
+    /// NEQSOP).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score_multiplier: Option<ScoreMultiplier>,
     pub config_fields: Vec<ConfigField>,
     #[serde(default)]
     pub score: ScoreSpec,
@@ -352,6 +406,65 @@ pub struct ContestSpec {
     pub default_variant: Option<String>,
     #[serde(default)]
     pub deprecated: Option<DeprecatedSpec>,
+}
+
+/// A single bonus rule — a condition and an amount added to the final score.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BonusRule {
+    /// Human-readable identifier for error messages and debugging.
+    pub id: String,
+    /// Optional predicate that must hold for the rule to fire on a QSO.
+    /// When `None`, every QSO is a candidate and the `scope` alone controls
+    /// how many times the bonus can fire.
+    #[serde(default)]
+    pub when: Option<Predicate>,
+    /// Point amount added for each firing of the rule.
+    pub amount: i64,
+    /// How the rule accumulates over the log.
+    pub scope: BonusScope,
+}
+
+/// Whole-score multiplier driven by a config-field value.
+///
+/// Used to express power-class score multipliers like QRP ×5, Low ×2,
+/// High ×1. At scoring time the engine looks up `from_config` in the
+/// operator's config, finds that value in `mapping`, and multiplies the
+/// base score (`points × mults`) by the resulting factor. If the config
+/// value is absent or not in `mapping`, `default` is used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScoreMultiplier {
+    /// Which config field drives the lookup (usually `my_power_class` or
+    /// similar — e.g., config value `"QRP"` / `"LOW"` / `"HIGH"`).
+    pub from_config: String,
+    /// Lookup table mapping config value → factor (case-insensitive).
+    pub mapping: BTreeMap<String, u32>,
+    /// Fallback factor when the config value is missing or not in
+    /// `mapping`. Defaults to 1 so a partial mapping with a typo still
+    /// produces sane scoring.
+    #[serde(default = "score_multiplier_default")]
+    pub default: u32,
+}
+
+fn score_multiplier_default() -> u32 {
+    1
+}
+
+/// How a `BonusRule` accumulates across multiple QSOs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BonusScope {
+    /// Fires at most once per log — for a matching QSO, accumulate `amount`
+    /// and then ignore the rule for the rest of the log. Useful for
+    /// "one-time bonus station" rules (e.g. "+250 pts for the first QSO
+    /// with W1AW/5").
+    Once,
+    /// Fires on every matching QSO. Useful for "+10 pts per bonus-station
+    /// contact" rules that don't cap the total.
+    PerQso,
+    /// Fires at most once per `(band, mode)` pair. Useful for "+100 per
+    /// band-mode to bonus station K4TCG" — 12 max firings for a CW+SSB
+    /// 6-band contest.
+    PerBandMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -638,6 +751,12 @@ pub trait StationResolver {
     fn resolve(&self, call: &Callsign) -> Result<ResolvedStation, String>;
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct SessionEnv {
+    band: Option<Band>,
+    mode: Option<Mode>,
+}
+
 #[derive(Debug, Clone)]
 struct EvalContext<'a> {
     config: &'a HashMap<String, Value>,
@@ -646,6 +765,7 @@ struct EvalContext<'a> {
     dest_call: &'a str,
     rcvd: &'a HashMap<String, Value>,
     sent: &'a HashMap<String, Value>,
+    session: SessionEnv,
 }
 
 fn eval_station_field(station: &ResolvedStation, key: &str) -> Option<Value> {
@@ -654,6 +774,14 @@ fn eval_station_field(station: &ResolvedStation, key: &str) -> Option<Value> {
         "continent" => Some(Value::Text(format!("{:?}", station.continent))),
         "is_wve" | "iswve" => Some(Value::Bool(station.is_wve)),
         "is_na" | "isna" => Some(Value::Bool(station.is_na)),
+        _ => None,
+    }
+}
+
+fn eval_session_field(env: &SessionEnv, key: &str) -> Option<Value> {
+    match key.trim().to_ascii_lowercase().as_str() {
+        "band" => env.band.map(|b| Value::Text(format!("{:?}", b))),
+        "mode" => env.mode.map(|m| Value::Text(format!("{:?}", m))),
         _ => None,
     }
 }
@@ -671,6 +799,7 @@ fn eval_field(ctx: &EvalContext<'_>, field: &FieldRef) -> Option<Value> {
         }
         Scope::Rcvd => ctx.rcvd.get(&field.key).cloned(),
         Scope::Sent => ctx.sent.get(&field.key).cloned(),
+        Scope::Session => eval_session_field(&ctx.session, &field.key),
     }
 }
 
@@ -715,6 +844,44 @@ fn eval_predicate(ctx: &EvalContext<'_>, pred: &Predicate) -> bool {
         Predicate::In(field, values) => eval_field(ctx, field)
             .map(|v| values.contains(&v.as_text()))
             .unwrap_or(false),
+        Predicate::DestCallIn(_) => {
+            // Requires a domain provider to look up; this pure-eval path
+            // cannot check the list. Use `eval_predicate_with_domains` from
+            // callers that need DestCallIn support (bonus rules, valid_qso).
+            false
+        }
+    }
+}
+
+/// Variant of `eval_predicate` that supports predicates which need the
+/// domain provider — currently only `Predicate::DestCallIn`. All other
+/// predicate variants fall through to the pure-eval path.
+fn eval_predicate_with_domains(
+    ctx: &EvalContext<'_>,
+    pred: &Predicate,
+    domains: &dyn DomainProvider,
+) -> bool {
+    match pred {
+        Predicate::And(items) => items
+            .iter()
+            .all(|p| eval_predicate_with_domains(ctx, p, domains)),
+        Predicate::Or(items) => items
+            .iter()
+            .any(|p| eval_predicate_with_domains(ctx, p, domains)),
+        Predicate::Not(inner) => !eval_predicate_with_domains(ctx, inner, domains),
+        Predicate::DestCallIn(domain) => {
+            let call_upper = ctx.dest_call.trim().to_ascii_uppercase();
+            match domain {
+                DomainRef::Any => !call_upper.is_empty(),
+                DomainRef::List(items) => items.iter().any(|v| v.eq_ignore_ascii_case(&call_upper)),
+                DomainRef::External { name } => domains
+                    .values(name)
+                    .map(|vals| vals.iter().any(|v| v.eq_ignore_ascii_case(&call_upper)))
+                    .unwrap_or(false),
+                DomainRef::Range { .. } => false,
+            }
+        }
+        _ => eval_predicate(ctx, pred),
     }
 }
 
@@ -735,6 +902,9 @@ fn predicate_uses_scope(pred: &Predicate, scope: Scope) -> bool {
         }
         Predicate::Not(inner) => predicate_uses_scope(inner, scope),
         Predicate::Between(field, ..) | Predicate::In(field, ..) => field.scope == scope,
+        // DestCallIn reads the destination callsign, not any declared scope
+        // the caller is interested in tracking via this helper.
+        Predicate::DestCallIn(_) => false,
     }
 }
 
@@ -928,26 +1098,32 @@ fn parse_field(
         }
     };
 
-    if let Some(domain) = &field.domain {
-        let text = parsed.as_text();
-        let ok = match domain {
-            DomainRef::Any => true,
-            DomainRef::Range { min, max } => parsed
-                .as_i64()
-                .map(|v| v >= *min && v <= *max)
-                .unwrap_or(false),
-            DomainRef::External { name } => domains
-                .values(name)
-                .map(|vals| vals.contains(&text))
-                .unwrap_or(false),
-            DomainRef::List(items) => items.contains(&text),
-        };
-        if !ok {
-            return Err(ExchangeError {
-                field_id: Some(field.id.clone()),
-                kind: ExchangeErrorKind::DomainMismatch,
-                message: format!("value {} not in domain for {}", text, field.id),
-            });
+    // Skip the field-level domain check when `multi_value_sep` is set.
+    // The field holds a multi-value string like "NH/ON" that would never
+    // be in the domain as a whole; the multiplier-extraction path splits
+    // it and validates each piece individually.
+    if field.multi_value_sep.is_none() {
+        if let Some(domain) = &field.domain {
+            let text = parsed.as_text();
+            let ok = match domain {
+                DomainRef::Any => true,
+                DomainRef::Range { min, max } => parsed
+                    .as_i64()
+                    .map(|v| v >= *min && v <= *max)
+                    .unwrap_or(false),
+                DomainRef::External { name } => domains
+                    .values(name)
+                    .map(|vals| vals.contains(&text))
+                    .unwrap_or(false),
+                DomainRef::List(items) => items.contains(&text),
+            };
+            if !ok {
+                return Err(ExchangeError {
+                    field_id: Some(field.id.clone()),
+                    kind: ExchangeErrorKind::DomainMismatch,
+                    message: format!("value {} not in domain for {}", text, field.id),
+                });
+            }
         }
     }
 
@@ -971,6 +1147,7 @@ fn parse_received(
         rcvd: &empty,
         sent: &sent,
         dest_call: "",
+        session: SessionEnv::default(),
     };
     let variant = spec
         .exchange
@@ -1074,10 +1251,24 @@ pub struct SpecEngine {
     source: ResolvedStation,
     total_points: i64,
     total_qsos: u32,
-    dupes: HashSet<(Option<Band>, Option<Mode>, Option<i64>, Callsign)>,
+    dupes: HashSet<(Option<Band>, Option<Mode>, Option<i64>, Callsign, Option<String>)>,
     mults: HashMap<(String, Option<Band>, Option<Mode>, Option<i64>), HashSet<String>>,
     points_by_band: HashMap<Band, i64>,
     serial_counters: HashMap<(Option<Band>, Option<Mode>, Option<i64>), u32>,
+    bonus: BonusAccumulator,
+}
+
+/// Per-session accumulator for bonus rules. Stays empty (no allocations,
+/// trivial final contribution of 0) when `ContestSpec::bonus_rules` is empty.
+#[derive(Debug, Clone, Default)]
+struct BonusAccumulator {
+    /// Accumulated total across all bonus-rule firings.
+    total: i64,
+    /// Rule ids that have already fired a `Once` scope.
+    fired_once: HashSet<String>,
+    /// `(rule_id, band, mode)` keys that have already fired a `PerBandMode`
+    /// scope. Each key contributes `amount` at most once.
+    fired_per_band_mode: HashSet<(String, Band, Mode)>,
 }
 
 pub struct SpecSession<R, D>
@@ -1093,6 +1284,90 @@ where
 impl SpecEngine {
     pub fn multiplier_ids(&self) -> Vec<&str> {
         self.spec.multipliers.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    /// Build the rover-identity portion of a dupe key from the received
+    /// exchange. Returns `None` when `dupe_extra_rcvd_fields` is empty
+    /// (the vast majority of contests), which preserves the historical
+    /// 4-tuple dupe-key semantics byte-for-byte.
+    fn dupe_extra_key(&self, parsed: &HashMap<String, Value>) -> Option<String> {
+        if self.spec.dupe_extra_rcvd_fields.is_empty() {
+            return None;
+        }
+        let parts: Vec<String> = self
+            .spec
+            .dupe_extra_rcvd_fields
+            .iter()
+            .map(|id| parsed.get(id).map(Value::as_text).unwrap_or_default())
+            .collect();
+        // Unit-separator (U+001F) — never appears in normal exchange text.
+        Some(parts.join("\u{1f}"))
+    }
+
+    /// If `key` is a direct `RCVD` field reference AND that field declares
+    /// a `multi_value_sep`, return the separator so the caller can split
+    /// the value into multiple multiplier rows. Returns `None` for every
+    /// historical spec (no multi_value_sep declared anywhere), preserving
+    /// single-value behavior byte-for-byte.
+    fn multi_value_sep_for_key(&self, key: &KeyExpr) -> Option<String> {
+        let field_id = match key {
+            KeyExpr::Field(field) if field.scope == Scope::Rcvd => &field.key,
+            _ => return None,
+        };
+        // Scan every received-variant's field list for a matching id.
+        for variant in &self.spec.exchange.received_variants {
+            for f in &variant.fields {
+                if f.id == *field_id {
+                    return f.multi_value_sep.clone();
+                }
+            }
+        }
+        None
+    }
+
+    /// Evaluate all bonus rules against the current QSO and accumulate any
+    /// that fire. Called from `apply_qso_at_with_mode` after multipliers
+    /// have been recorded. When `bonus_rules` is empty, this is a
+    /// zero-overhead no-op: the for-loop body doesn't execute and
+    /// `accumulator.total` stays at 0.
+    ///
+    /// Takes explicit borrows (`bonus_rules`, `accumulator`) instead of
+    /// `&mut self` so the caller can still hold a reference to the
+    /// `EvalContext` (which borrows `self.config` immutably).
+    fn accumulate_bonuses(
+        bonus_rules: &[BonusRule],
+        accumulator: &mut BonusAccumulator,
+        ctx: &EvalContext<'_>,
+        domains: &dyn DomainProvider,
+        band: Band,
+        mode: Mode,
+    ) {
+        for rule in bonus_rules {
+            let matches = rule
+                .when
+                .as_ref()
+                .map(|p| eval_predicate_with_domains(ctx, p, domains))
+                .unwrap_or(true);
+            if !matches {
+                continue;
+            }
+            match &rule.scope {
+                BonusScope::Once => {
+                    if accumulator.fired_once.insert(rule.id.clone()) {
+                        accumulator.total += rule.amount;
+                    }
+                }
+                BonusScope::PerQso => {
+                    accumulator.total += rule.amount;
+                }
+                BonusScope::PerBandMode => {
+                    let key = (rule.id.clone(), band, mode);
+                    if accumulator.fired_per_band_mode.insert(key) {
+                        accumulator.total += rule.amount;
+                    }
+                }
+            }
+        }
     }
 
     fn scope_key(
@@ -1140,6 +1415,7 @@ impl SpecEngine {
             mults: HashMap::new(),
             points_by_band: HashMap::new(),
             serial_counters: HashMap::new(),
+            bonus: BonusAccumulator::default(),
         })
     }
 
@@ -1201,6 +1477,10 @@ impl SpecEngine {
             dest_call: &call_text,
             rcvd: &parsed,
             sent: &empty,
+            session: SessionEnv {
+                band: Some(band),
+                mode: Some(mode),
+            },
         };
         for (check, msg) in &self.spec.valid_qso {
             if !eval_predicate(&ctx, check) {
@@ -1209,17 +1489,27 @@ impl SpecEngine {
         }
 
         let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode, epoch_seconds);
-        if self
-            .dupes
-            .contains(&(dupe_scope.0, dupe_scope.1, dupe_scope.2, call.clone()))
-        {
+        let dupe_extra = self.dupe_extra_key(&parsed);
+        if self.dupes.contains(&(
+            dupe_scope.0,
+            dupe_scope.1,
+            dupe_scope.2,
+            call.clone(),
+            dupe_extra.clone(),
+        )) {
             return Ok(self.summary(true, 0, None, false, Vec::new(), HashMap::new()));
         }
-        self.dupes
-            .insert((dupe_scope.0, dupe_scope.1, dupe_scope.2, call));
+        self.dupes.insert((
+            dupe_scope.0,
+            dupe_scope.1,
+            dupe_scope.2,
+            call,
+            dupe_extra,
+        ));
         self.total_qsos += 1;
 
-        let (qso_points, qso_points_rule_index, qso_points_is_fallback) = self.compute_points(&ctx);
+        let (qso_points, qso_points_rule_index, qso_points_is_fallback) =
+            self.compute_points(&ctx, domains);
         self.total_points += qso_points;
         *self.points_by_band.entry(band).or_insert(0) += qso_points;
         let mut new_mults = Vec::new();
@@ -1234,21 +1524,46 @@ impl SpecEngine {
                 Some(v) => v,
                 None => continue,
             };
-            let value = match eval_key_expr(&ctx, &variant.key) {
+            let raw_value = match eval_key_expr(&ctx, &variant.key) {
                 Some(v) => v,
                 None => continue,
             };
-            if !validate_value_in_domain(&value, &variant.domain, domains) {
-                continue;
-            }
+            // Split the value into one or more multiplier candidates
+            // according to the field's multi_value_sep (if any). The
+            // vast majority of contests have no separator declared;
+            // multi_sep is None and `values` has exactly one element
+            // — the historical behavior.
+            let multi_sep = self.multi_value_sep_for_key(&variant.key);
+            let values: Vec<String> = match multi_sep {
+                Some(sep) if !sep.is_empty() => raw_value
+                    .split(sep.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                _ => vec![raw_value],
+            };
             let state = self
                 .mults
                 .entry((mult.id.clone(), mult_scope.0, mult_scope.1, mult_scope.2))
                 .or_default();
-            if state.insert(value.clone()) {
-                new_mults.push(format!("{}:{}", mult.id, value));
+            for value in values {
+                if !validate_value_in_domain(&value, &variant.domain, domains) {
+                    continue;
+                }
+                if state.insert(value.clone()) {
+                    new_mults.push(format!("{}:{}", mult.id, value));
+                }
             }
         }
+
+        Self::accumulate_bonuses(
+            &self.spec.bonus_rules,
+            &mut self.bonus,
+            &ctx,
+            domains,
+            band,
+            mode,
+        );
 
         let mut sent_exchange = if self.spec.exchange.sent_variants.is_empty() {
             HashMap::new()
@@ -1292,6 +1607,7 @@ impl SpecEngine {
             dest_call: "",
             rcvd: &empty,
             sent: &empty,
+            session: SessionEnv::default(),
         };
         let variant = self
             .spec
@@ -1422,9 +1738,6 @@ impl SpecEngine {
             });
         }
         let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode, epoch_seconds);
-        let is_dupe = self
-            .dupes
-            .contains(&(dupe_scope.0, dupe_scope.1, dupe_scope.2, call.clone()));
         let dest = resolver.resolve(&call).map_err(EngineError::Resolve)?;
         let parsed = parse_received(
             &self.spec,
@@ -1435,6 +1748,14 @@ impl SpecEngine {
             domains,
         )
         .map_err(EngineError::Exchange)?;
+        let dupe_extra = self.dupe_extra_key(&parsed);
+        let is_dupe = self.dupes.contains(&(
+            dupe_scope.0,
+            dupe_scope.1,
+            dupe_scope.2,
+            call.clone(),
+            dupe_extra,
+        ));
         let call_text = call.as_str().to_string();
         let empty = HashMap::new();
         let ctx = EvalContext {
@@ -1444,6 +1765,10 @@ impl SpecEngine {
             dest_call: &call_text,
             rcvd: &parsed,
             sent: &empty,
+            session: SessionEnv {
+                band: Some(band),
+                mode: Some(mode),
+            },
         };
         let mut would_be = Vec::new();
         for mult in &self.spec.multipliers {
@@ -1518,9 +1843,21 @@ impl SpecEngine {
             });
         }
         let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode, epoch_seconds);
-        let is_dupe = self
-            .dupes
-            .contains(&(dupe_scope.0, dupe_scope.1, dupe_scope.2, call.clone()));
+        // If rover identity is enabled, dupe status depends on received
+        // exchange content we don't have here (classify_call takes no
+        // exchange). Fall back to "not dupe": the actual duplication check
+        // fires for real at apply_qso time with the full exchange in hand.
+        let is_dupe = if self.spec.dupe_extra_rcvd_fields.is_empty() {
+            self.dupes.contains(&(
+                dupe_scope.0,
+                dupe_scope.1,
+                dupe_scope.2,
+                call.clone(),
+                None,
+            ))
+        } else {
+            false
+        };
         let dest = resolver.resolve(&call).map_err(EngineError::Resolve)?;
         let call_text = call.as_str().to_string();
         let empty = HashMap::new();
@@ -1531,6 +1868,10 @@ impl SpecEngine {
             dest_call: &call_text,
             rcvd: &empty,
             sent: &empty,
+            session: SessionEnv {
+                band: Some(band),
+                mode: Some(mode),
+            },
         };
 
         let mut would_be = Vec::new();
@@ -1653,6 +1994,7 @@ impl SpecEngine {
             dest_call: "",
             rcvd: &empty,
             sent: &empty,
+            session: SessionEnv::default(),
         };
         let variant = match mult.variants.iter().find(|v| {
             v.when
@@ -1718,7 +2060,7 @@ impl SpecEngine {
     }
 
     pub fn claimed_score(&self) -> i64 {
-        match self.spec.score.formula {
+        let base = match self.spec.score.formula {
             ScoreFormula::PointsTimesTotalMults => self.total_points * self.total_mults() as i64,
             ScoreFormula::PointsTimesSumBandMults => self.total_points * self.sum_band_mults() as i64,
             ScoreFormula::SumBandPointsTimesBandMults => self
@@ -1726,15 +2068,46 @@ impl SpecEngine {
                 .iter()
                 .map(|(band, points)| points * self.mults_for_band(*band) as i64)
                 .sum(),
-        }
+        };
+        let scaled = base * self.score_multiplier_factor() as i64;
+        scaled + self.bonus.total
     }
 
-    fn compute_points(&self, ctx: &EvalContext<'_>) -> (i64, Option<usize>, bool) {
+    /// Compute the whole-score multiplier factor for the operator. Returns
+    /// 1 when no `score_multiplier` is configured, which preserves the
+    /// historical scoring formula byte-for-byte.
+    fn score_multiplier_factor(&self) -> u32 {
+        let Some(sm) = self.spec.score_multiplier.as_ref() else {
+            return 1;
+        };
+        let Some(value) = self.config.get(&sm.from_config) else {
+            return sm.default;
+        };
+        let text = value.as_text().to_ascii_uppercase();
+        for (k, v) in &sm.mapping {
+            if k.eq_ignore_ascii_case(&text) {
+                return *v;
+            }
+        }
+        sm.default
+    }
+
+    /// Total additive bonus points awarded by `bonus_rules` so far.
+    /// Returns 0 for any spec without bonus rules.
+    pub fn bonus_total(&self) -> i64 {
+        self.bonus.total
+    }
+
+    fn compute_points(
+        &self,
+        ctx: &EvalContext<'_>,
+        domains: &dyn DomainProvider,
+    ) -> (i64, Option<usize>, bool) {
         for (idx, rule) in self.spec.points.iter().enumerate() {
             let pass = rule
                 .when
                 .as_ref()
-                .map(|w| eval_predicate(ctx, w))
+                .map(|w| eval_predicate_with_domains(ctx, w, domains))
                 .unwrap_or(true);
             if pass {
                 return (rule.value, Some(idx), rule.when.is_none());
@@ -2039,6 +2412,7 @@ fn validate_config(
         dest_call: "",
         rcvd: &empty,
         sent: &empty,
+        session: SessionEnv::default(),
     };
     for field in &spec.config_fields {
         let conditional = field
@@ -2181,6 +2555,19 @@ pub mod embedded {
     const MST_JSON: &str = include_str!("../specs/mst.json");
     const NS_SPRINT_JSON: &str = include_str!("../specs/ns_sprint.json");
     const SS_JSON: &str = include_str!("../specs/ss.json");
+    const NHQP_JSON: &str = include_str!("../specs/nhqp.json");
+    const GAQP_JSON: &str = include_str!("../specs/gaqp.json");
+    const NDQP_JSON: &str = include_str!("../specs/ndqp.json");
+    const MIQP_JSON: &str = include_str!("../specs/miqp.json");
+    const INQP_JSON: &str = include_str!("../specs/inqp.json");
+    const NEQP_JSON: &str = include_str!("../specs/neqp.json");
+    const MOQP_JSON: &str = include_str!("../specs/moqp.json");
+    const QCQP_JSON: &str = include_str!("../specs/qcqp.json");
+    const ONQP_JSON: &str = include_str!("../specs/onqp.json");
+    const DEQP_JSON: &str = include_str!("../specs/deqp.json");
+    const NMQP_JSON: &str = include_str!("../specs/nmqp.json");
+    const NEQSOP_JSON: &str = include_str!("../specs/neqsop.json");
+    const FLQP_JSON: &str = include_str!("../specs/flqp.json");
 
     // Domain files (plain text, one value per line)
     const ARRL_DX_WVE_MULTS: &str =
@@ -2192,9 +2579,54 @@ pub mod embedded {
     const NS_SPRINT_MULTS: &str =
         include_str!("../specs/domains/ns_sprint_multipliers.txt");
     const SS_SECTIONS: &str = include_str!("../specs/domains/ss_sections.txt");
+    const NH_COUNTIES: &str = include_str!("../specs/domains/nh_counties.txt");
+    const NH_IN_STATE_MULTS: &str = include_str!("../specs/domains/nh_in_state_mults.txt");
+    const US_STATES: &str = include_str!("../specs/domains/us_states.txt");
+    const CA_PROVINCES: &str = include_str!("../specs/domains/ca_provinces.txt");
+    const GA_COUNTIES: &str = include_str!("../specs/domains/ga_counties.txt");
+    const ND_COUNTIES: &str = include_str!("../specs/domains/nd_counties.txt");
+    const MI_COUNTIES: &str = include_str!("../specs/domains/mi_counties.txt");
+    const IN_COUNTIES: &str = include_str!("../specs/domains/in_counties.txt");
+    const NEQP_COUNTIES: &str = include_str!("../specs/domains/neqp_counties.txt");
+    const MO_COUNTIES: &str = include_str!("../specs/domains/mo_counties.txt");
+    const MOQP_BONUS_STATIONS: &str =
+        include_str!("../specs/domains/moqp_bonus_stations.txt");
+    const QC_REGIONS: &str = include_str!("../specs/domains/qc_regions.txt");
+    const ON_MULTIPLIER_AREAS: &str =
+        include_str!("../specs/domains/on_multiplier_areas.txt");
+    const ONQP_BONUS_STATIONS: &str =
+        include_str!("../specs/domains/onqp_bonus_stations.txt");
+    const DE_COUNTIES: &str = include_str!("../specs/domains/de_counties.txt");
+    const NM_COUNTIES: &str = include_str!("../specs/domains/nm_counties.txt");
+    const NE_COUNTIES: &str = include_str!("../specs/domains/ne_counties.txt");
+    const NEQSOP_BONUS_STATIONS: &str =
+        include_str!("../specs/domains/neqsop_bonus_stations.txt");
+    const FL_COUNTIES: &str = include_str!("../specs/domains/fl_counties.txt");
 
     /// All embedded contest spec IDs, in the order they're tried by lookups.
-    pub const SPEC_IDS: &[&str] = &["cqww", "cqww_cw", "cwt", "arrl_dx", "naqp", "mst", "ns_sprint", "ss"];
+    pub const SPEC_IDS: &[&str] = &[
+        "cqww",
+        "cqww_cw",
+        "cwt",
+        "arrl_dx",
+        "naqp",
+        "mst",
+        "ns_sprint",
+        "ss",
+        "nhqp",
+        "gaqp",
+        "ndqp",
+        "miqp",
+        "inqp",
+        "neqp",
+        "moqp",
+        "qcqp",
+        "onqp",
+        "deqp",
+        "nmqp",
+        "neqsop",
+        "flqp",
+    ];
 
     /// Look up an embedded contest spec by its ID (the filename stem, without `.json`).
     ///
@@ -2212,6 +2644,19 @@ pub mod embedded {
             "mst" => MST_JSON,
             "ns_sprint" => NS_SPRINT_JSON,
             "ss" => SS_JSON,
+            "nhqp" => NHQP_JSON,
+            "gaqp" => GAQP_JSON,
+            "ndqp" => NDQP_JSON,
+            "miqp" => MIQP_JSON,
+            "inqp" => INQP_JSON,
+            "neqp" => NEQP_JSON,
+            "moqp" => MOQP_JSON,
+            "qcqp" => QCQP_JSON,
+            "onqp" => ONQP_JSON,
+            "deqp" => DEQP_JSON,
+            "nmqp" => NMQP_JSON,
+            "neqsop" => NEQSOP_JSON,
+            "flqp" => FLQP_JSON,
             _ => return None,
         };
         ContestSpec::from_json_str(json).ok()
@@ -2220,7 +2665,8 @@ pub mod embedded {
     /// Build the standard domain provider from embedded domain files.
     ///
     /// Equivalent to `domain_packs::load_standard_domain_pack` but without
-    /// touching the filesystem. All four standard domains are always available.
+    /// touching the filesystem. Provides all the domains referenced by the
+    /// embedded contest specs.
     pub fn standard_domain_pack() -> InMemoryDomainProvider {
         let mut provider = InMemoryDomainProvider::new();
         provider.insert(
@@ -2250,6 +2696,87 @@ pub mod embedded {
             "ss_sections",
             parse_domain_file_content(SS_SECTIONS)
                 .expect("embedded ss_sections parse"),
+        );
+        provider.insert(
+            "nh_counties",
+            parse_domain_file_content(NH_COUNTIES).expect("embedded nh_counties parse"),
+        );
+        provider.insert(
+            "nh_in_state_mults",
+            parse_domain_file_content(NH_IN_STATE_MULTS)
+                .expect("embedded nh_in_state_mults parse"),
+        );
+        provider.insert(
+            "us_states",
+            parse_domain_file_content(US_STATES).expect("embedded us_states parse"),
+        );
+        provider.insert(
+            "ca_provinces",
+            parse_domain_file_content(CA_PROVINCES).expect("embedded ca_provinces parse"),
+        );
+        provider.insert(
+            "ga_counties",
+            parse_domain_file_content(GA_COUNTIES).expect("embedded ga_counties parse"),
+        );
+        provider.insert(
+            "nd_counties",
+            parse_domain_file_content(ND_COUNTIES).expect("embedded nd_counties parse"),
+        );
+        provider.insert(
+            "mi_counties",
+            parse_domain_file_content(MI_COUNTIES).expect("embedded mi_counties parse"),
+        );
+        provider.insert(
+            "in_counties",
+            parse_domain_file_content(IN_COUNTIES).expect("embedded in_counties parse"),
+        );
+        provider.insert(
+            "neqp_counties",
+            parse_domain_file_content(NEQP_COUNTIES).expect("embedded neqp_counties parse"),
+        );
+        provider.insert(
+            "mo_counties",
+            parse_domain_file_content(MO_COUNTIES).expect("embedded mo_counties parse"),
+        );
+        provider.insert(
+            "moqp_bonus_stations",
+            parse_domain_file_content(MOQP_BONUS_STATIONS)
+                .expect("embedded moqp_bonus_stations parse"),
+        );
+        provider.insert(
+            "qc_regions",
+            parse_domain_file_content(QC_REGIONS).expect("embedded qc_regions parse"),
+        );
+        provider.insert(
+            "on_multiplier_areas",
+            parse_domain_file_content(ON_MULTIPLIER_AREAS)
+                .expect("embedded on_multiplier_areas parse"),
+        );
+        provider.insert(
+            "onqp_bonus_stations",
+            parse_domain_file_content(ONQP_BONUS_STATIONS)
+                .expect("embedded onqp_bonus_stations parse"),
+        );
+        provider.insert(
+            "de_counties",
+            parse_domain_file_content(DE_COUNTIES).expect("embedded de_counties parse"),
+        );
+        provider.insert(
+            "nm_counties",
+            parse_domain_file_content(NM_COUNTIES).expect("embedded nm_counties parse"),
+        );
+        provider.insert(
+            "ne_counties",
+            parse_domain_file_content(NE_COUNTIES).expect("embedded ne_counties parse"),
+        );
+        provider.insert(
+            "neqsop_bonus_stations",
+            parse_domain_file_content(NEQSOP_BONUS_STATIONS)
+                .expect("embedded neqsop_bonus_stations parse"),
+        );
+        provider.insert(
+            "fl_counties",
+            parse_domain_file_content(FL_COUNTIES).expect("embedded fl_counties parse"),
         );
         provider
     }
@@ -2644,6 +3171,733 @@ mod tests {
 
         let cwt = load_spec("cwt");
         assert_eq!(cwt.name, "CWops CWT");
+    }
+
+    // ---------- Rover identity (dupe_extra_rcvd_fields) tests ----------
+
+    /// When `dupe_extra_rcvd_fields` is empty, the dupe check is the historical
+    /// 4-tuple behavior: same call on same band/mode is a dupe.
+    #[test]
+    fn rover_identity_disabled_preserves_classic_dupe_semantics() {
+        let mut spec = load_spec("naqp");
+        assert!(spec.dupe_extra_rcvd_fields.is_empty());
+        spec.dupe_dimension = Dimension::BandMode;
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let a = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(!a.is_dupe);
+
+        // Same call, same band/mode, DIFFERENT loc (`NH` vs earlier `NY`).
+        // Without rover identity, this still counts as a dupe.
+        let b = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(
+            b.is_dupe,
+            "without dupe_extra_rcvd_fields, second QSO on same band/mode should dupe"
+        );
+    }
+
+    /// When rover identity is enabled (dupe_extra_rcvd_fields includes "loc"),
+    /// the same callsign sending two distinct locations counts as two QSOs.
+    #[test]
+    fn rover_identity_allows_rework_on_changed_exchange_field() {
+        let mut spec = load_spec("naqp");
+        spec.dupe_dimension = Dimension::BandMode;
+        spec.dupe_extra_rcvd_fields = vec!["loc".to_string()];
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        // First QSO: loc=NH, fresh station.
+        let first = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(!first.is_dupe);
+
+        // Second QSO: same call, same band/mode, but different loc.
+        // Mobile has moved — NOT a dupe under rover identity.
+        let second = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE ON",
+            )
+            .unwrap();
+        assert!(
+            !second.is_dupe,
+            "different loc for same call should re-work under rover identity"
+        );
+
+        // Third QSO: repeating loc=NH on same band/mode → IS a dupe.
+        let third = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(
+            third.is_dupe,
+            "same call and same loc on same band/mode must still dupe"
+        );
+
+        // Total: 2 valid QSOs (NH, ON), 1 dupe. total_qsos increments only on
+        // non-dupes, so the engine should report 2 QSOs.
+        assert_eq!(engine.total_qsos(), 2);
+    }
+
+    /// Rover identity is scoped within the dupe dimension — NY on 20m and NY
+    /// on 40m are still considered distinct, as are NY on 20m CW and 20m SSB.
+    #[test]
+    fn rover_identity_respects_dimension_scope() {
+        let mut spec = load_spec("naqp");
+        spec.dupe_dimension = Dimension::BandMode;
+        spec.dupe_extra_rcvd_fields = vec!["loc".to_string()];
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        // Three QSOs across 2 bands × same loc.
+        let a = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(!a.is_dupe);
+
+        let b = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B40,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(!b.is_dupe, "different band scope → not a dupe");
+
+        let c = engine
+            .apply_qso_with_mode(
+                &resolver,
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert!(
+            c.is_dupe,
+            "same band/mode + same loc should dupe under rover identity"
+        );
+    }
+
+    // ---------- Bonus rules (bonus_rules + DestCallIn) tests ----------
+
+    /// When `bonus_rules` is empty, `claimed_score` is unchanged — this is
+    /// the foundation of the additive-only guarantee.
+    #[test]
+    fn bonus_rules_empty_leaves_score_unchanged() {
+        let spec = load_spec("cwt");
+        assert!(spec.bonus_rules.is_empty());
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "MIKE MA",
+            )
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 0);
+        // CWT is 1 pt × 1 global mult = 1. A stray bonus would bump this.
+        assert_eq!(engine.claimed_score(), 1);
+    }
+
+    /// `BonusScope::Once` on a `DestCallIn` predicate fires exactly once
+    /// — even if the operator works the bonus station on multiple bands.
+    #[test]
+    fn bonus_rule_once_with_dest_call_in_fires_one_time() {
+        let mut spec = load_spec("cwt");
+        spec.bonus_rules.push(BonusRule {
+            id: "w1aw_bonus".to_string(),
+            when: Some(Predicate::DestCallIn(DomainRef::List(vec![
+                "W1AW".to_string(),
+            ]))),
+            amount: 100,
+            scope: BonusScope::Once,
+        });
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert("W1AW", ResolvedStation::new("W", Continent::NA, true, true));
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        // First W1AW QSO fires the bonus.
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("W1AW"),
+                "MIKE CT",
+            )
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 100);
+
+        // Second W1AW QSO on a different band — bonus must NOT fire again.
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B40,
+                Callsign::new("W1AW"),
+                "MIKE CT",
+            )
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 100, "Once bonus must only fire once");
+
+        // Unrelated QSO — no additional bonus.
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B40,
+                Callsign::new("K1ABC"),
+                "MIKE MA",
+            )
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 100);
+    }
+
+    /// `BonusScope::PerQso` on a `DestCallIn` predicate fires every time the
+    /// bonus station is worked (once per band-mode dupe-gate).
+    #[test]
+    fn bonus_rule_per_qso_with_dest_call_in_fires_each_time() {
+        let mut spec = load_spec("cwt");
+        spec.bonus_rules.push(BonusRule {
+            id: "club_bonus".to_string(),
+            when: Some(Predicate::DestCallIn(DomainRef::List(vec![
+                "VA3CCO".to_string(),
+                "VE3CCO".to_string(),
+            ]))),
+            amount: 10,
+            scope: BonusScope::PerQso,
+        });
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "VA3CCO",
+            ResolvedStation::new("VE", Continent::NA, true, true),
+        );
+        resolver.insert(
+            "VE3CCO",
+            ResolvedStation::new("VE", Continent::NA, true, true),
+        );
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        // Work VA3CCO on 20m and 40m, VE3CCO on 20m, and K1ABC (no bonus).
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B20, Callsign::new("VA3CCO"), "JEAN ON")
+            .unwrap();
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B40, Callsign::new("VA3CCO"), "JEAN ON")
+            .unwrap();
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B20, Callsign::new("VE3CCO"), "PIERRE ON")
+            .unwrap();
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B40, Callsign::new("K1ABC"), "MIKE MA")
+            .unwrap();
+
+        // 3 bonus-eligible QSOs × 10 = 30.
+        assert_eq!(engine.bonus_total(), 30);
+    }
+
+    /// `BonusScope::PerBandMode` fires at most once per `(band, mode)` per
+    /// rule id — so working the same bonus station on the same band/mode
+    /// doesn't double-count (it's a dupe anyway) but working it on a new
+    /// band or mode does.
+    #[test]
+    fn bonus_rule_per_band_mode_fires_once_per_band_mode() {
+        let mut spec = load_spec("cwt");
+        spec.bonus_rules.push(BonusRule {
+            id: "hq_per_bm".to_string(),
+            when: Some(Predicate::DestCallIn(DomainRef::List(vec![
+                "K4TCG".to_string(),
+            ]))),
+            amount: 100,
+            scope: BonusScope::PerBandMode,
+        });
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K4TCG",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B20, Callsign::new("K4TCG"), "BOB TN")
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 100);
+
+        // Same band, same mode, same call → dupe; bonus unchanged.
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B20, Callsign::new("K4TCG"), "BOB TN")
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 100);
+
+        // Different band → new bonus firing.
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B40, Callsign::new("K4TCG"), "BOB TN")
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 200);
+
+        // Different band again → third firing.
+        let _ = engine
+            .apply_qso(&resolver, &domains, Band::B80, Callsign::new("K4TCG"), "BOB TN")
+            .unwrap();
+        assert_eq!(engine.bonus_total(), 300);
+    }
+
+    // ---------- Score multiplier (power class) tests ----------
+
+    /// When `score_multiplier` is `None`, `claimed_score` is unchanged —
+    /// the additive-only guarantee for the Phase 3 feature.
+    #[test]
+    fn score_multiplier_none_leaves_score_unchanged() {
+        let spec = load_spec("cwt");
+        assert!(spec.score_multiplier.is_none());
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "MIKE MA",
+            )
+            .unwrap();
+        assert_eq!(engine.claimed_score(), 1);
+    }
+
+    /// QRP ×5, Low ×2, High ×1 — canonical power multiplier matrix used by
+    /// NMQP and NEQSOP.
+    #[test]
+    fn score_multiplier_scales_by_power_class_lookup() {
+        let mut spec = load_spec("cwt");
+        let mut mapping = BTreeMap::new();
+        mapping.insert("QRP".to_string(), 5);
+        mapping.insert("LOW".to_string(), 2);
+        mapping.insert("HIGH".to_string(), 1);
+        spec.score_multiplier = Some(ScoreMultiplier {
+            from_config: "my_power_class".to_string(),
+            mapping,
+            default: 1,
+        });
+
+        fn score_with_power(spec: &ContestSpec, power: &str) -> i64 {
+            let mut resolver = InMemoryResolver::new();
+            resolver.insert(
+                "K1ABC",
+                ResolvedStation::new("W", Continent::NA, true, true),
+            );
+            let domains = super::tests::base_domains();
+            let source = ResolvedStation::new("W", Continent::NA, true, true);
+            let mut config = HashMap::new();
+            config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+            config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+            config.insert(
+                "my_power_class".to_string(),
+                Value::Text(power.to_string()),
+            );
+            let mut engine = SpecEngine::new(spec.clone(), source, config).unwrap();
+            let _ = engine
+                .apply_qso(
+                    &resolver,
+                    &domains,
+                    Band::B20,
+                    Callsign::new("K1ABC"),
+                    "MIKE MA",
+                )
+                .unwrap();
+            engine.claimed_score()
+        }
+
+        // CWT base: 1 pt × 1 mult = 1.
+        assert_eq!(score_with_power(&spec, "QRP"), 5);
+        assert_eq!(score_with_power(&spec, "LOW"), 2);
+        assert_eq!(score_with_power(&spec, "HIGH"), 1);
+    }
+
+    /// Missing or unknown config value falls through to `default`.
+    #[test]
+    fn score_multiplier_missing_config_uses_default() {
+        let mut spec = load_spec("cwt");
+        let mut mapping = BTreeMap::new();
+        mapping.insert("QRP".to_string(), 5);
+        spec.score_multiplier = Some(ScoreMultiplier {
+            from_config: "my_power_class".to_string(),
+            mapping,
+            default: 3,
+        });
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        // my_power_class NOT set in config → default applies.
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "MIKE MA",
+            )
+            .unwrap();
+        assert_eq!(engine.claimed_score(), 3);
+    }
+
+    /// Score multiplier applies to the base `(points × mults)`, but bonuses
+    /// are added *after* the multiplication. Delaware QSO Party uses this
+    /// exact composition: `(points × mults × power) + submission_bonus`.
+    #[test]
+    fn score_multiplier_composes_with_bonus_additively() {
+        let mut spec = load_spec("cwt");
+        let mut mapping = BTreeMap::new();
+        mapping.insert("QRP".to_string(), 5);
+        spec.score_multiplier = Some(ScoreMultiplier {
+            from_config: "my_power_class".to_string(),
+            mapping,
+            default: 1,
+        });
+        spec.bonus_rules.push(BonusRule {
+            id: "flat_submission".to_string(),
+            when: None,
+            amount: 50,
+            scope: BonusScope::Once,
+        });
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        config.insert(
+            "my_power_class".to_string(),
+            Value::Text("QRP".to_string()),
+        );
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "MIKE MA",
+            )
+            .unwrap();
+        // Base = 1 × 1 = 1. Scaled by x5 = 5. Plus +50 bonus = 55.
+        // (Not 1 × 1 × (5+50) = 55. The bonus is additive, not multiplied.)
+        assert_eq!(engine.claimed_score(), 55);
+    }
+
+    // ---------- Multi-mult per QSO (multi_value_sep) tests ----------
+
+    /// When `multi_value_sep` is `None` (the default), the multiplier loop
+    /// behaves exactly as before — one QSO yields at most one mult value.
+    #[test]
+    fn multi_value_sep_none_preserves_single_value_behavior() {
+        let spec = load_spec("naqp");
+        for variant in &spec.exchange.received_variants {
+            for f in &variant.fields {
+                assert!(
+                    f.multi_value_sep.is_none(),
+                    "baseline spec {} field {} unexpectedly has multi_value_sep",
+                    spec.id,
+                    f.id
+                );
+            }
+        }
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let result = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "MIKE NH",
+            )
+            .unwrap();
+        assert_eq!(result.new_mults, vec!["na_mult:NH"]);
+        assert_eq!(engine.total_mults(), 1);
+    }
+
+    /// With `multi_value_sep: "/"`, a received value like `NH/ON` splits
+    /// into two distinct multiplier rows from a single QSO.
+    #[test]
+    fn multi_value_sep_slash_splits_one_qso_into_two_mults() {
+        let mut spec = load_spec("naqp");
+        for variant in &mut spec.exchange.received_variants {
+            for f in &mut variant.fields {
+                if f.id == "loc" {
+                    f.multi_value_sep = Some("/".to_string());
+                }
+            }
+        }
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1CL",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let result = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1CL"),
+                "MIKE NH/ON",
+            )
+            .unwrap();
+        // Both NH and ON are in base_domains naqp_multipliers. The single
+        // QSO produced both mult rows.
+        let mut sorted_mults = result.new_mults.clone();
+        sorted_mults.sort();
+        assert_eq!(
+            sorted_mults,
+            vec!["na_mult:NH".to_string(), "na_mult:ON".to_string()]
+        );
+        assert_eq!(engine.total_mults(), 2);
+        // Still a single QSO for dupe/count purposes.
+        assert_eq!(engine.total_qsos(), 1);
+    }
+
+    /// An unknown split value is rejected by domain validation; valid
+    /// split values still count. The overall QSO still counts once.
+    #[test]
+    fn multi_value_sep_skips_unknown_values_and_keeps_valid() {
+        let mut spec = load_spec("naqp");
+        for variant in &mut spec.exchange.received_variants {
+            for f in &mut variant.fields {
+                if f.id == "loc" {
+                    f.multi_value_sep = Some("/".to_string());
+                }
+            }
+        }
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1CL",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        // NH is in base_domains naqp_multipliers, ZZ is not.
+        let result = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1CL"),
+                "MIKE NH/ZZ",
+            )
+            .unwrap();
+        assert_eq!(result.new_mults, vec!["na_mult:NH"]);
+        assert_eq!(engine.total_mults(), 1);
+        assert_eq!(engine.total_qsos(), 1);
+    }
+
+    /// `claimed_score` is `(points × mults) + bonus_total`. Demonstrates the
+    /// additive composition end-to-end on a spec with both multipliers and
+    /// a Once bonus.
+    #[test]
+    fn claimed_score_adds_bonus_total_to_base_formula() {
+        let mut spec = load_spec("cwt");
+        spec.bonus_rules.push(BonusRule {
+            id: "flat".to_string(),
+            when: None,
+            amount: 50,
+            scope: BonusScope::Once,
+        });
+
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert(
+            "K1ABC",
+            ResolvedStation::new("W", Continent::NA, true, true),
+        );
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_xchg".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let _ = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("K1ABC"),
+                "MIKE MA",
+            )
+            .unwrap();
+
+        // Base: 1 pt × 1 mult = 1. Plus one-time +50 bonus = 51.
+        assert_eq!(engine.total_points(), 1);
+        assert_eq!(engine.total_mults(), 1);
+        assert_eq!(engine.bonus_total(), 50);
+        assert_eq!(engine.claimed_score(), 51);
     }
 
     #[test]

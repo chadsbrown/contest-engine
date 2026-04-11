@@ -1,0 +1,20 @@
+{
+  "total_qsos": 5,
+  "dupe_qsos": 1,
+  "total_points": 10,
+  "total_mults": 5,
+  "claimed_score": 50,
+  "points_by_band": {
+    "B20": 6,
+    "B40": 4
+  },
+  "mults": {
+    "county_mult": [
+      "GRA",
+      "HIL",
+      "ROC"
+    ],
+    "dxcc_mult": [],
+    "in_state_mult": []
+  }
+}

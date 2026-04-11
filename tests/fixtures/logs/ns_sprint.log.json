@@ -1,0 +1,21 @@
+{
+  "spec_id": "ns_sprint",
+  "description": "NCCC NS Sprint. Per-band loc multiplier, 1 pt/QSO, sent serial auto-generated. Tests serial assignment, band-scoped dupes, and mult counting.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_name": {"Text": "CHRIS"},
+    "my_loc":  {"Text": "MA"}
+  },
+  "stations": {
+    "K1ABC":  {"dxcc": "W",  "continent": "NA", "is_wve": true, "is_na": true},
+    "K2XYZ":  {"dxcc": "W",  "continent": "NA", "is_wve": true, "is_na": true},
+    "VE3ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "1 MIKE OH"},
+    {"band": "B20", "mode": "CW", "call": "K2XYZ",  "exchange": "2 BOB TX"},
+    {"band": "B40", "mode": "CW", "call": "VE3ABC", "exchange": "3 PIERRE ON"},
+    {"band": "B40", "mode": "CW", "call": "K1ABC",  "exchange": "4 MIKE OH"},
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "5 MIKE OH"}
+  ]
+}

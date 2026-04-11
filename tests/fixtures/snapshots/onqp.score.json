@@ -1,0 +1,24 @@
+{
+  "total_qsos": 7,
+  "dupe_qsos": 1,
+  "total_points": 30,
+  "total_mults": 6,
+  "claimed_score": 180,
+  "points_by_band": {
+    "B20": 18,
+    "B40": 12
+  },
+  "mults": {
+    "area_mult": [
+      "HAM",
+      "NIA",
+      "OTT",
+      "PEL",
+      "SIM",
+      "TOR"
+    ],
+    "in_ont_dxcc_mult": [],
+    "in_ont_prov_mult": [],
+    "in_ont_state_mult": []
+  }
+}

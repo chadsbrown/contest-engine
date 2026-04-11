@@ -1,0 +1,22 @@
+{
+  "total_qsos": 6,
+  "dupe_qsos": 1,
+  "total_points": 11,
+  "total_mults": 6,
+  "claimed_score": 66,
+  "points_by_band": {
+    "B20": 9,
+    "B40": 2
+  },
+  "mults": {
+    "county_mult": [
+      "BIBB",
+      "COBB",
+      "DKLB",
+      "FULT",
+      "HOUS"
+    ],
+    "in_state_prov_mult": [],
+    "in_state_state_mult": []
+  }
+}

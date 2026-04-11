@@ -1,0 +1,21 @@
+{
+  "total_qsos": 5,
+  "dupe_qsos": 1,
+  "total_points": 10,
+  "total_mults": 5,
+  "claimed_score": 50,
+  "points_by_band": {
+    "B20": 8,
+    "B40": 2
+  },
+  "mults": {
+    "county_mult": [
+      "INALL",
+      "INLAK",
+      "INLAP",
+      "INMRN"
+    ],
+    "in_state_prov_mult": [],
+    "in_state_state_mult": []
+  }
+}

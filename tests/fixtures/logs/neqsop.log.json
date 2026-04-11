@@ -1,0 +1,25 @@
+{
+  "spec_id": "neqsop",
+  "description": "Nebraska QSO Party. Non-NE source, LOW power (score multiplier x2). Per-mode points Ph 1/CW 3/Dig 1. Rover identity. NE0QP +100 one-time bonus. Rare grid 5x points, satellite/mobile point categories, and year-variable Section Manager/Appointee bonus stations are deferred as future work.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_ne":       {"Bool": false},
+    "my_loc":         {"Text": "MA"},
+    "my_power_class": {"Text": "LOW"}
+  },
+  "stations": {
+    "K0AAA":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W0BBB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "NE0QP":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W0MOB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K0AAA", "exchange": "599 DGLS"},
+    {"band": "B20", "mode": "SSB", "call": "K0AAA", "exchange": "59 DGLS"},
+    {"band": "B40", "mode": "CW",  "call": "W0BBB", "exchange": "599 LNCS"},
+    {"band": "B20", "mode": "CW",  "call": "NE0QP", "exchange": "599 SARP"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 BUFF"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 HALL"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 BUFF"}
+  ]
+}

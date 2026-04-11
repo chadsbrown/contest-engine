@@ -1,0 +1,13 @@
+# New Hampshire QSO Party county abbreviations
+# Source: https://w1wqm.org/wp-content/uploads/2025/08/NHQP_Rules.pdf
+# 10 NH counties.
+BEL
+CAR
+CHE
+COO
+GRA
+HIL
+MER
+ROC
+STR
+SUL

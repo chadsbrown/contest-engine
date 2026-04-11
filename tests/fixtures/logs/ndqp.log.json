@@ -1,0 +1,22 @@
+{
+  "spec_id": "ndqp",
+  "description": "North Dakota QSO Party — 1 pt per QSO all modes, global county mult, rover identity. Source is non-ND working ND stations; includes a rover re-work and one true dupe.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_nd": {"Bool": false},
+    "my_loc":   {"Text": "MA"}
+  },
+  "stations": {
+    "K0AAA":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "N0BBB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W0MOB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K0AAA", "exchange": "599 CSS"},
+    {"band": "B20", "mode": "SSB", "call": "K0AAA", "exchange": "59 CSS"},
+    {"band": "B40", "mode": "CW",  "call": "N0BBB", "exchange": "599 BUR"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 GFK"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 MTN"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 GFK"}
+  ]
+}

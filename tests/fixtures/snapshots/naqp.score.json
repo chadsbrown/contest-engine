@@ -1,0 +1,18 @@
+{
+  "total_qsos": 6,
+  "dupe_qsos": 1,
+  "total_points": 6,
+  "total_mults": 4,
+  "claimed_score": 24,
+  "points_by_band": {
+    "B20": 4,
+    "B40": 2
+  },
+  "mults": {
+    "na_mult": [
+      "NY",
+      "ON",
+      "TX"
+    ]
+  }
+}

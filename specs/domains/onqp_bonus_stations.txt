@@ -1,0 +1,9 @@
+# Ontario QSO Party bonus stations (2026).
+# Each contact with any of these scores 10 pts instead of the normal 2,
+# matched via a conditional point rule (DestCallIn predicate).
+# New for 2026: VE3RHQ (RAC Headquarters) added.
+VA3CCO
+VE3CCO
+VE3ODX
+VE3RHQ
+VA3RAC

@@ -1,0 +1,22 @@
+{
+  "spec_id": "qcqp",
+  "description": "Quebec QSO Party. Non-QC source works VE2 stations. 1 pt SSB / 2 pt CW per band, per-band region multipliers, rover identity. No bonus stations in 2026+.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_qc": {"Bool": false},
+    "my_loc":   {"Text": "NY"}
+  },
+  "stations": {
+    "VE2AAA": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE2BBB": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE2MOB": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "VE2AAA", "exchange": "599 MTL"},
+    {"band": "B20", "mode": "SSB", "call": "VE2AAA", "exchange": "59 MTL"},
+    {"band": "B40", "mode": "CW",  "call": "VE2BBB", "exchange": "599 QUE"},
+    {"band": "B20", "mode": "CW",  "call": "VE2MOB", "exchange": "599 BSA"},
+    {"band": "B20", "mode": "CW",  "call": "VE2MOB", "exchange": "599 GIM"},
+    {"band": "B20", "mode": "CW",  "call": "VE2MOB", "exchange": "599 BSA"}
+  ]
+}

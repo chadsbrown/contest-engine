@@ -1,0 +1,20 @@
+{
+  "total_qsos": 6,
+  "dupe_qsos": 1,
+  "total_points": 18,
+  "total_mults": 6,
+  "claimed_score": 108,
+  "points_by_band": {
+    "B15": 3,
+    "B20": 9,
+    "B40": 6
+  },
+  "mults": {
+    "dx_mult": [
+      "DL",
+      "F",
+      "G",
+      "JA"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "spec_id": "nhqp",
+  "description": "New Hampshire QSO Party. Phase 0 smoke test. Source is a non-NH station, so only the per-band county_mult multiplier applies. 2 pts/QSO (CW-only for now — see spec file). Tests per-band-mode dupes, per-band mult accumulation, cross-band re-work, and a true dupe.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_nh": {"Bool": false},
+    "my_loc":   {"Text": "MA"}
+  },
+  "stations": {
+    "K1AAA": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W1BBB": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "N1CCC": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "K1AAA", "exchange": "599 HIL"},
+    {"band": "B20", "mode": "CW", "call": "W1BBB", "exchange": "599 ROC"},
+    {"band": "B20", "mode": "CW", "call": "N1CCC", "exchange": "599 GRA"},
+    {"band": "B40", "mode": "CW", "call": "K1AAA", "exchange": "599 HIL"},
+    {"band": "B40", "mode": "CW", "call": "W1BBB", "exchange": "599 ROC"},
+    {"band": "B20", "mode": "CW", "call": "K1AAA", "exchange": "599 HIL"}
+  ]
+}

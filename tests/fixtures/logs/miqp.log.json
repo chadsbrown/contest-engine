@@ -1,0 +1,22 @@
+{
+  "spec_id": "miqp",
+  "description": "Michigan QSO Party — 1 pt SSB, 2 pt CW; per-mode county mult for non-MI; rover identity. Source is non-MI; includes a rover re-work and a true dupe.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_mi": {"Bool": false},
+    "my_loc":   {"Text": "MA"}
+  },
+  "stations": {
+    "K8AAA":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W8BBB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "K8MOB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K8AAA", "exchange": "599 WAYN"},
+    {"band": "B20", "mode": "SSB", "call": "K8AAA", "exchange": "59 WAYN"},
+    {"band": "B40", "mode": "CW",  "call": "W8BBB", "exchange": "599 OAKL"},
+    {"band": "B20", "mode": "CW",  "call": "K8MOB", "exchange": "599 KENT"},
+    {"band": "B20", "mode": "CW",  "call": "K8MOB", "exchange": "599 MARQ"},
+    {"band": "B20", "mode": "CW",  "call": "K8MOB", "exchange": "599 KENT"}
+  ]
+}

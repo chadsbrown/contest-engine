@@ -1,0 +1,29 @@
+{
+  "spec_id": "ss",
+  "description": "ARRL November Sweepstakes. W/VE only. Global dupe, global section multiplier, 2 pts/QSO. 7 distinct sections across multiple bands and one intentional dupe.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_prec": {"Text": "B"},
+    "my_ck": {"Text": "75"},
+    "my_sec": {"Text": "EMA"}
+  },
+  "stations": {
+    "W1ABC": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W2XYZ": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "K3FOO": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "K4BAR": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W5CAT": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE1RAC": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true},
+    "VE3ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "W1ABC",  "exchange": "1 B 75 NH"},
+    {"band": "B20", "mode": "CW", "call": "W2XYZ",  "exchange": "2 B 75 EMA"},
+    {"band": "B20", "mode": "CW", "call": "K3FOO",  "exchange": "3 A 88 EPA"},
+    {"band": "B40", "mode": "CW", "call": "K4BAR",  "exchange": "4 U 50 GA"},
+    {"band": "B15", "mode": "CW", "call": "W5CAT",  "exchange": "5 Q 05 LA"},
+    {"band": "B40", "mode": "CW", "call": "VE1RAC", "exchange": "1 S 99 NS"},
+    {"band": "B20", "mode": "SSB","call": "VE3ABC", "exchange": "6 M 88 ONS"},
+    {"band": "B80", "mode": "CW", "call": "W1ABC",  "exchange": "7 B 75 NH"}
+  ]
+}

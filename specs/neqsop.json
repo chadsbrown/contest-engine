@@ -1,0 +1,108 @@
+{
+  "id": "neqsop",
+  "name": "Nebraska QSO Party",
+  "cabrillo_contest": "NE-QSO-PARTY",
+  "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
+  "modes": ["CW", "SSB", "DIGITAL"],
+  "dupe_dimension": "BandMode",
+  "dupe_extra_rcvd_fields": ["loc"],
+  "valid_qso": [],
+  "exchange": {
+    "received_variants": [
+      {
+        "when": null,
+        "fields": [
+          {"id": "rst", "field_type": "Rst", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
+          {"id": "loc", "field_type": "Enum", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true}
+        ]
+      }
+    ],
+    "sent_variants": [
+      {
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": true}}]},
+        "fields": [
+          {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
+          {"id": "loc", "value": {"Config": "my_county"}, "normalize_upper_trim": true}
+        ]
+      },
+      {
+        "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": false}}]},
+        "fields": [
+          {"id": "rst", "value": {"Const": "599"}, "normalize_upper_trim": false},
+          {"id": "loc", "value": {"Config": "my_loc"}, "normalize_upper_trim": true}
+        ]
+      }
+    ]
+  },
+  "multipliers": [
+    {
+      "id": "county_mult",
+      "dimension": "Global",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": false}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "ne_counties"}}
+        }
+      ]
+    },
+    {
+      "id": "in_state_state_mult",
+      "dimension": "Global",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "us_states"}}
+        }
+      ]
+    },
+    {
+      "id": "in_state_prov_mult",
+      "dimension": "Global",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "ca_provinces"}}
+        }
+      ]
+    },
+    {
+      "id": "in_state_dxcc_mult",
+      "dimension": "Global",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "DEST", "key": "dxcc"},
+          "domain": {"External": {"name": "dxcc_entities_excluding_w_ve"}}
+        }
+      ]
+    }
+  ],
+  "points": [
+    {"when": {"Eq": [{"Field": {"scope": "SESSION", "key": "mode"}}, {"Value": {"Text": "SSB"}}]}, "value": 1},
+    {"when": {"Eq": [{"Field": {"scope": "SESSION", "key": "mode"}}, {"Value": {"Text": "CW"}}]}, "value": 3},
+    {"when": null, "value": 1}
+  ],
+  "score_multiplier": {
+    "from_config": "my_power_class",
+    "mapping": {"QRP": 5, "LOW": 2, "HIGH": 1},
+    "default": 1
+  },
+  "bonus_rules": [
+    {
+      "id": "ne0qp_bonus",
+      "when": {"DestCallIn": {"External": {"name": "neqsop_bonus_stations"}}},
+      "amount": 100,
+      "scope": "once"
+    }
+  ],
+  "score": {"formula": "points_times_mults"},
+  "config_fields": [
+    {"id": "my_is_ne", "required": true, "required_when": null, "domain": null},
+    {"id": "my_power_class", "required": true, "required_when": null, "domain": {"List": ["HIGH", "LOW", "QRP"]}},
+    {"id": "my_county", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": true}}]}, "domain": {"External": {"name": "ne_counties"}}},
+    {"id": "my_loc", "required": false, "required_when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": false}}]}, "domain": null}
+  ]
+}

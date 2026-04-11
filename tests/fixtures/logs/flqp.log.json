@@ -1,0 +1,24 @@
+{
+  "spec_id": "flqp",
+  "description": "Florida QSO Party — 1 pt SSB / 2 pt CW, per-mode county mults, rover identity. Exercises the multi_value_sep feature: a county-line mobile sending ALC/BAK yields two multiplier credits from a single QSO (a single QSO that increments both ALC and BAK for the receiver).",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_fl": {"Bool": false},
+    "my_loc":   {"Text": "MA"}
+  },
+  "stations": {
+    "K4AAA":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "N4BBB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W4CL":   {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W4MOB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K4AAA", "exchange": "599 BRE"},
+    {"band": "B20", "mode": "SSB", "call": "K4AAA", "exchange": "59 BRE"},
+    {"band": "B40", "mode": "CW",  "call": "N4BBB", "exchange": "599 DAD"},
+    {"band": "B20", "mode": "CW",  "call": "W4CL",  "exchange": "599 ALC/BAK"},
+    {"band": "B20", "mode": "CW",  "call": "W4MOB", "exchange": "599 POL"},
+    {"band": "B20", "mode": "CW",  "call": "W4MOB", "exchange": "599 OSC"},
+    {"band": "B20", "mode": "CW",  "call": "W4MOB", "exchange": "599 POL"}
+  ]
+}

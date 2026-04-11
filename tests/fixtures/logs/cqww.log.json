@@ -1,0 +1,26 @@
+{
+  "spec_id": "cqww",
+  "description": "CQ World-Wide DX. Per-band zone and country multipliers. Conditional point rules: 0 same-DXCC, 3 cross-continent, 2 same-continent-NA, 1 same-continent-other. CW variant.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "variant": "cw",
+  "config": {
+    "my_cq_zone": {"Int": 5}
+  },
+  "stations": {
+    "W1ABC":  {"dxcc": "W",  "continent": "NA", "is_wve": true,  "is_na": true},
+    "VE1ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true,  "is_na": true},
+    "DL1ABC": {"dxcc": "DL", "continent": "EU", "is_wve": false, "is_na": false},
+    "F1XYZ":  {"dxcc": "F",  "continent": "EU", "is_wve": false, "is_na": false},
+    "G4ABC":  {"dxcc": "G",  "continent": "EU", "is_wve": false, "is_na": false},
+    "JA1ABC": {"dxcc": "JA", "continent": "AS", "is_wve": false, "is_na": false}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "DL1ABC", "exchange": "599 14"},
+    {"band": "B20", "mode": "CW", "call": "F1XYZ",  "exchange": "599 14"},
+    {"band": "B20", "mode": "CW", "call": "G4ABC",  "exchange": "599 14"},
+    {"band": "B40", "mode": "CW", "call": "JA1ABC", "exchange": "599 25"},
+    {"band": "B20", "mode": "CW", "call": "VE1ABC", "exchange": "599 5"},
+    {"band": "B20", "mode": "CW", "call": "W1ABC",  "exchange": "599 5"},
+    {"band": "B20", "mode": "CW", "call": "DL1ABC", "exchange": "599 14"}
+  ]
+}

@@ -1,0 +1,4 @@
+# Missouri QSO Party bonus stations (2026).
+# Each of these contributes a one-time +100 point bonus when worked.
+W0MA
+K0GQ

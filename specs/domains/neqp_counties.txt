@@ -1,0 +1,83 @@
+# New England QSO Party county abbreviations. 68 total, 5-letter format.
+# Source: https://neqp.org/neqp-county-abbreviations/
+# Connecticut uses Regional Councils of Government in place of counties.
+#
+# Connecticut (9)
+CTCAP
+CTGBR
+CTLCR
+CTNAU
+CTNOE
+CTNOW
+CTSOC
+CTSOE
+CTWES
+#
+# Massachusetts (14)
+MABAR
+MABER
+MABRI
+MADUK
+MAESS
+MAFRA
+MAHMD
+MAHMP
+MAMID
+MANAN
+MANOR
+MAPLY
+MASUF
+MAWOR
+#
+# Maine (16)
+MEAND
+MEARO
+MECUM
+MEFRA
+MEHAN
+MEKEN
+MEKNO
+MELIN
+MEOXF
+MEPEN
+MEPIS
+MESAG
+MESOM
+MEWAL
+MEWAS
+MEYOR
+#
+# New Hampshire (10)
+NHBEL
+NHCAR
+NHCHE
+NHCOO
+NHGRA
+NHHIL
+NHMER
+NHROC
+NHSTR
+NHSUL
+#
+# Rhode Island (5)
+RIBRI
+RIKEN
+RINEW
+RIPRO
+RIWAS
+#
+# Vermont (14)
+VTADD
+VTBEN
+VTCAL
+VTCHI
+VTESS
+VTFRA
+VTGRA
+VTLAM
+VTORA
+VTORL
+VTRUT
+VTWAS
+VTWND
+VTWNH

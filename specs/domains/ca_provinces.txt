@@ -1,0 +1,14 @@
+# Canadian province and territory 2-letter abbreviations used as QSO party multipliers.
+AB
+BC
+MB
+NB
+NL
+NS
+NT
+NU
+ON
+PE
+QC
+SK
+YT

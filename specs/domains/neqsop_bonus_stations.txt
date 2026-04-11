@@ -1,0 +1,6 @@
+# Nebraska QSO Party bonus stations (core callsigns).
+# Each contributes a one-time +100 bonus when worked.
+# The Section Manager and NE Appointee bonuses are year-variable callsigns
+# that aren't captured here; add them as a separate domain when the list is
+# known for a given year.
+NE0QP

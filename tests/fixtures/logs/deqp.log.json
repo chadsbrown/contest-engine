@@ -1,0 +1,23 @@
+{
+  "spec_id": "deqp",
+  "description": "Delaware QSO Party. Non-DE source (LOW power = x2 score multiplier). Out-of-state points have the 10x built-in (Ph 10 / CW 20 / Dig 20). 3 DE counties only. Tests per-band mult, rover identity, per-mode points, and the score_multiplier feature in composition.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_de":       {"Bool": false},
+    "my_loc":         {"Text": "MA"},
+    "my_power_class": {"Text": "LOW"}
+  },
+  "stations": {
+    "K3AAA":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "N3BBB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W3MOB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K3AAA", "exchange": "599 NDE"},
+    {"band": "B20", "mode": "SSB", "call": "K3AAA", "exchange": "59 NDE"},
+    {"band": "B40", "mode": "CW",  "call": "N3BBB", "exchange": "599 KDE"},
+    {"band": "B20", "mode": "CW",  "call": "W3MOB", "exchange": "599 SDE"},
+    {"band": "B20", "mode": "CW",  "call": "W3MOB", "exchange": "599 KDE"},
+    {"band": "B20", "mode": "CW",  "call": "W3MOB", "exchange": "599 SDE"}
+  ]
+}

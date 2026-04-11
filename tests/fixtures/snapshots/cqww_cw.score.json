@@ -1,0 +1,26 @@
+{
+  "total_qsos": 6,
+  "dupe_qsos": 1,
+  "total_points": 14,
+  "total_mults": 9,
+  "claimed_score": 126,
+  "points_by_band": {
+    "B20": 11,
+    "B40": 3
+  },
+  "mults": {
+    "country": [
+      "DL",
+      "F",
+      "G",
+      "JA",
+      "VE",
+      "W"
+    ],
+    "zone": [
+      "14",
+      "25",
+      "5"
+    ]
+  }
+}

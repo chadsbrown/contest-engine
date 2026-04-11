@@ -1,0 +1,26 @@
+{
+  "spec_id": "nmqp",
+  "description": "New Mexico QSO Party. Non-NM source, QRP power (score multiplier x5). Tests: rover identity, per-mode points, global county mults, score multiplier, W1AW/5 one-time +250 bonus (2026 only). Mobile +5000/county threshold bonus is deferred (Phase 2.5).",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_nm":       {"Bool": false},
+    "my_loc":         {"Text": "MA"},
+    "my_power_class": {"Text": "QRP"}
+  },
+  "stations": {
+    "K5AAA":   {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W5BBB":   {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W1AW/5":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W5MOB":   {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K5AAA",  "exchange": "599 BER"},
+    {"band": "B20", "mode": "SSB", "call": "K5AAA",  "exchange": "59 BER"},
+    {"band": "B40", "mode": "CW",  "call": "W5BBB",  "exchange": "599 DON"},
+    {"band": "B20", "mode": "CW",  "call": "W1AW/5", "exchange": "599 SFE"},
+    {"band": "B40", "mode": "CW",  "call": "W1AW/5", "exchange": "599 SFE"},
+    {"band": "B20", "mode": "CW",  "call": "W5MOB",  "exchange": "599 RIO"},
+    {"band": "B20", "mode": "CW",  "call": "W5MOB",  "exchange": "599 SJU"},
+    {"band": "B20", "mode": "CW",  "call": "W5MOB",  "exchange": "599 RIO"}
+  ]
+}

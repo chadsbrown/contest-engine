@@ -1,0 +1,18 @@
+{
+  "total_qsos": 4,
+  "dupe_qsos": 1,
+  "total_points": 4,
+  "total_mults": 3,
+  "claimed_score": 12,
+  "points_by_band": {
+    "B20": 2,
+    "B40": 2
+  },
+  "mults": {
+    "call": [
+      "K1ABC",
+      "K2XYZ",
+      "VE1ABC"
+    ]
+  }
+}

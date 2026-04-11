@@ -1,0 +1,20 @@
+{
+  "spec_id": "mst",
+  "description": "ICWC Medium Speed Test. Global callsign mult, single-field exchange (just name), 1 pt/QSO. Same pattern as CWT but with the minimal one-field exchange.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_name": {"Text": "CHRIS"}
+  },
+  "stations": {
+    "K1ABC":  {"dxcc": "W",  "continent": "NA", "is_wve": true, "is_na": true},
+    "K2XYZ":  {"dxcc": "W",  "continent": "NA", "is_wve": true, "is_na": true},
+    "VE1ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE"},
+    {"band": "B40", "mode": "CW", "call": "K2XYZ",  "exchange": "BOB"},
+    {"band": "B20", "mode": "CW", "call": "VE1ABC", "exchange": "JEAN"},
+    {"band": "B80", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE"},
+    {"band": "B20", "mode": "CW", "call": "K1ABC",  "exchange": "MIKE"}
+  ]
+}

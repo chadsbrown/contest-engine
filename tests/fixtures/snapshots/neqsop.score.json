@@ -1,0 +1,23 @@
+{
+  "total_qsos": 6,
+  "dupe_qsos": 1,
+  "total_points": 16,
+  "total_mults": 5,
+  "claimed_score": 260,
+  "points_by_band": {
+    "B20": 13,
+    "B40": 3
+  },
+  "mults": {
+    "county_mult": [
+      "BUFF",
+      "DGLS",
+      "HALL",
+      "LNCS",
+      "SARP"
+    ],
+    "in_state_dxcc_mult": [],
+    "in_state_prov_mult": [],
+    "in_state_state_mult": []
+  }
+}

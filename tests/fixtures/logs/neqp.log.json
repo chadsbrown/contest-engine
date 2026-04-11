@@ -1,0 +1,22 @@
+{
+  "spec_id": "neqp",
+  "description": "New England QSO Party — 1 pt SSB, 2 pt CW/Digital; per-band-mode county mult for non-NE; rover identity; 5-letter state+county exchange. Source is non-NE.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_ne": {"Bool": false},
+    "my_loc":   {"Text": "NY"}
+  },
+  "stations": {
+    "W1AAA": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "K1BBB": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "N1MOB": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "W1AAA", "exchange": "599 MAWOR"},
+    {"band": "B20", "mode": "SSB", "call": "W1AAA", "exchange": "59 MAWOR"},
+    {"band": "B40", "mode": "CW",  "call": "K1BBB", "exchange": "599 NHHIL"},
+    {"band": "B20", "mode": "CW",  "call": "N1MOB", "exchange": "599 VTCHI"},
+    {"band": "B20", "mode": "CW",  "call": "N1MOB", "exchange": "599 VTWND"},
+    {"band": "B20", "mode": "CW",  "call": "N1MOB", "exchange": "599 VTCHI"}
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "spec_id": "moqp",
+  "description": "Missouri QSO Party. Non-MO source works MO stations. Exercises rover identity (mobile in two counties), per-mode SSB/CW points, global county mults, and two Once bonus-station rules (W0MA +100, K0GQ +100).",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_mo": {"Bool": false},
+    "my_loc":   {"Text": "MA"}
+  },
+  "stations": {
+    "K0AAA":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W0BBB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W0MA":   {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "K0GQ":   {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+    "W0MOB":  {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K0AAA", "exchange": "599 JAC"},
+    {"band": "B20", "mode": "SSB", "call": "K0AAA", "exchange": "59 JAC"},
+    {"band": "B40", "mode": "CW",  "call": "W0BBB", "exchange": "599 STL"},
+    {"band": "B20", "mode": "CW",  "call": "W0MA",  "exchange": "599 STC"},
+    {"band": "B40", "mode": "CW",  "call": "W0MA",  "exchange": "599 STC"},
+    {"band": "B20", "mode": "CW",  "call": "K0GQ",  "exchange": "599 BOO"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 CAL"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 LAF"},
+    {"band": "B20", "mode": "CW",  "call": "W0MOB", "exchange": "599 CAL"}
+  ]
+}

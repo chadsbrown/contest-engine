@@ -1,0 +1,35 @@
+# New Mexico QSO Party county abbreviations. 33 total.
+# Source: http://www.newmexicoqsoparty.org/wp/wp-content/uploads/2026/04/NMQP_Forms.pdf
+BER
+CAT
+CHA
+CIB
+COL
+CUR
+DEB
+DON
+EDD
+GRA
+GUA
+HAR
+HID
+LEA
+LIN
+LOS
+LUN
+MCK
+MOR
+OTE
+QUA
+RIO
+ROO
+SJU
+SMI
+SAN
+SFE
+SIE
+SOC
+TAO
+TOR
+UNI
+VAL

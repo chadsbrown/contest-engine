@@ -1,0 +1,23 @@
+{
+  "total_qsos": 7,
+  "dupe_qsos": 1,
+  "total_points": 14,
+  "total_mults": 7,
+  "claimed_score": 98,
+  "points_by_band": {
+    "B15": 2,
+    "B20": 8,
+    "B40": 4
+  },
+  "mults": {
+    "section": [
+      "EMA",
+      "EPA",
+      "GA",
+      "LA",
+      "NH",
+      "NS",
+      "ONS"
+    ]
+  }
+}
