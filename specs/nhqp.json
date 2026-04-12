@@ -12,7 +12,7 @@
         "when": null,
         "fields": [
           {"id": "rst", "field_type": "Rst", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false},
-          {"id": "loc", "field_type": "Enum", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true}
+          {"id": "loc", "field_type": "Enum", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true, "multi_value_sep": "/"}
         ]
       }
     ],
