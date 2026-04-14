@@ -11,7 +11,8 @@
       {
         "when": null,
         "fields": [
-          {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true}
+          {"id": "name", "field_type": "String", "required": true, "domain": null, "accept": [], "normalize_upper_trim": true},
+          {"id": "nr", "field_type": "Int", "required": true, "domain": null, "accept": [], "normalize_upper_trim": false}
         ]
       }
     ],
