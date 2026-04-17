@@ -1930,6 +1930,151 @@ impl SpecEngine {
         })
     }
 
+    /// Classify a *hypothetical* candidate: the caller supplies both a
+    /// `ResolvedStation` (bypassing the resolver — useful for calls that
+    /// haven't been logged/inserted) and a pre-tokenized received-exchange
+    /// map keyed by field id. Used for bandmap mult prediction from
+    /// call-history data, where the call is unknown to the resolver but
+    /// the caller has candidate exchange values from an external source.
+    ///
+    /// `hypothetical_rcvd` is keyed by field id (matching the spec's
+    /// received-exchange field ids). Each value is parsed using the same
+    /// field rules as a live QSO exchange. Fields not declared by the
+    /// selected exchange variant, or values that fail parsing, are
+    /// silently dropped — call-history data is frequently partial or
+    /// stale, and an error here should not block classification.
+    ///
+    /// Read-only: does not mutate session state.
+    pub fn classify_hypothetical_at_with_mode(
+        &self,
+        domains: &dyn DomainProvider,
+        band: Band,
+        mode: Mode,
+        epoch_seconds: i64,
+        call: Callsign,
+        dest: &ResolvedStation,
+        hypothetical_rcvd: &HashMap<String, String>,
+    ) -> Result<CandidateSummary, EngineError> {
+        if !self.effective_spec.allowed_modes.contains(&mode) {
+            return Err(EngineError::InvalidMode {
+                mode,
+                allowed: self.effective_spec.allowed_modes.clone(),
+            });
+        }
+
+        let call_text = call.as_str().to_string();
+        let empty = HashMap::new();
+        let sent = HashMap::new();
+
+        // Variant selection cannot depend on rcvd (same rule as
+        // `parse_received`); use an empty rcvd for the selection context.
+        let base_ctx = EvalContext {
+            config: &self.config,
+            source: &self.source,
+            dest,
+            dest_call: &call_text,
+            rcvd: &empty,
+            sent: &sent,
+            session: SessionEnv::default(),
+        };
+        let parsed = match self.spec.exchange.received_variants.iter().find(|v| {
+            v.when
+                .as_ref()
+                .map(|w| eval_predicate(&base_ctx, w))
+                .unwrap_or(true)
+        }) {
+            Some(variant) => {
+                let mut parsed = HashMap::new();
+                for field in &variant.fields {
+                    if let Some(token) = hypothetical_rcvd.get(&field.id) {
+                        if let Ok(Some(v)) = parse_field(field, Some(token.as_str()), domains) {
+                            parsed.insert(field.id.clone(), v);
+                        }
+                    }
+                }
+                parsed
+            }
+            None => HashMap::new(),
+        };
+
+        let dupe_scope = Self::scope_key(self.spec.dupe_dimension.clone(), band, mode, epoch_seconds);
+        let dupe_extra = self.dupe_extra_key(&parsed);
+        let is_dupe = self.dupes.contains(&(
+            dupe_scope.0,
+            dupe_scope.1,
+            dupe_scope.2,
+            call.clone(),
+            dupe_extra,
+        ));
+
+        let ctx = EvalContext {
+            config: &self.config,
+            source: &self.source,
+            dest,
+            dest_call: &call_text,
+            rcvd: &parsed,
+            sent: &empty,
+            session: SessionEnv {
+                band: Some(band),
+                mode: Some(mode),
+            },
+        };
+        let mut would_be = Vec::new();
+        for mult in &self.spec.multipliers {
+            let variant = match mult.variants.iter().find(|v| {
+                v.when
+                    .as_ref()
+                    .map(|p| eval_predicate(&ctx, p))
+                    .unwrap_or(true)
+            }) {
+                Some(v) => v,
+                None => continue,
+            };
+            let value = match eval_key_expr(&ctx, &variant.key) {
+                Some(v) => v,
+                None => continue,
+            };
+            if !validate_value_in_domain(&value, &variant.domain, domains) {
+                continue;
+            }
+            let seen = self
+                .mults
+                .get(&{
+                    let s = Self::scope_key(mult.dimension.clone(), band, mode, epoch_seconds);
+                    (mult.id.clone(), s.0, s.1, s.2)
+                })
+                .map(|s| s.contains(&value))
+                .unwrap_or(false);
+            if !seen {
+                would_be.push(format!("{}:{}", mult.id, value));
+            }
+        }
+        Ok(CandidateSummary {
+            is_dupe,
+            would_be_new_mults: would_be,
+        })
+    }
+
+    pub fn classify_hypothetical_with_mode(
+        &self,
+        domains: &dyn DomainProvider,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+        dest: &ResolvedStation,
+        hypothetical_rcvd: &HashMap<String, String>,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.classify_hypothetical_at_with_mode(
+            domains,
+            band,
+            mode,
+            0,
+            call,
+            dest,
+            hypothetical_rcvd,
+        )
+    }
+
     pub fn worked_mults(&self, mult_id: &str, band: Option<Band>) -> Vec<String> {
         self.worked_mults_scoped(mult_id, band, None)
     }
@@ -2310,6 +2455,44 @@ where
     ) -> Result<CandidateEvalLite, EngineError> {
         self.engine
             .classify_call_lite_with_mode(&self.resolver, &self.domains, band, mode, call)
+    }
+
+    pub fn classify_hypothetical_with_mode(
+        &self,
+        band: Band,
+        mode: Mode,
+        call: Callsign,
+        dest: &ResolvedStation,
+        hypothetical_rcvd: &HashMap<String, String>,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.engine.classify_hypothetical_with_mode(
+            &self.domains,
+            band,
+            mode,
+            call,
+            dest,
+            hypothetical_rcvd,
+        )
+    }
+
+    pub fn classify_hypothetical_at_with_mode(
+        &self,
+        band: Band,
+        mode: Mode,
+        epoch_seconds: i64,
+        call: Callsign,
+        dest: &ResolvedStation,
+        hypothetical_rcvd: &HashMap<String, String>,
+    ) -> Result<CandidateSummary, EngineError> {
+        self.engine.classify_hypothetical_at_with_mode(
+            &self.domains,
+            band,
+            mode,
+            epoch_seconds,
+            call,
+            dest,
+            hypothetical_rcvd,
+        )
     }
 
     pub fn classify_call_at_with_mode(
@@ -3013,6 +3196,98 @@ mod tests {
             .unwrap();
         assert_eq!(result.qso_points, 3);
         assert_eq!(engine.worked_mults("dx_mult", Some(Band::B20)), vec!["MA"]);
+    }
+
+    #[test]
+    fn classify_hypothetical_downgrades_already_worked_mult() {
+        // Work one NH station on 20m; a hypothetical NH exchange for a
+        // different unknown call should yield no new mult (NH on 20m already
+        // logged). A hypothetical ON exchange for another call should.
+        let spec = load_spec("naqp");
+        let mut resolver = InMemoryResolver::new();
+        resolver.insert("N1AA", ResolvedStation::new("W", Continent::NA, true, true));
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let mut engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let applied = engine
+            .apply_qso(
+                &resolver,
+                &domains,
+                Band::B20,
+                Callsign::new("N1AA"),
+                "JOE NH",
+            )
+            .unwrap();
+        assert_eq!(applied.new_mults, vec!["na_mult:NH".to_string()]);
+
+        let dest_na = ResolvedStation::new("W", Continent::NA, true, true);
+
+        let mut nh_rcvd = HashMap::new();
+        nh_rcvd.insert("loc".to_string(), "NH".to_string());
+        nh_rcvd.insert("name".to_string(), "BOB".to_string());
+        let summary = engine
+            .classify_hypothetical_with_mode(
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("N2BB"),
+                &dest_na,
+                &nh_rcvd,
+            )
+            .unwrap();
+        assert!(
+            summary.would_be_new_mults.is_empty(),
+            "NH already worked on 20m — hypothetical NH should yield no new mult, got {:?}",
+            summary.would_be_new_mults
+        );
+
+        let mut on_rcvd = HashMap::new();
+        on_rcvd.insert("loc".to_string(), "ON".to_string());
+        on_rcvd.insert("name".to_string(), "SAM".to_string());
+        let summary = engine
+            .classify_hypothetical_with_mode(
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("N3CC"),
+                &dest_na,
+                &on_rcvd,
+            )
+            .unwrap();
+        assert_eq!(summary.would_be_new_mults, vec!["na_mult:ON".to_string()]);
+    }
+
+    #[test]
+    fn classify_hypothetical_missing_mult_field_yields_none() {
+        // If the hypothetical map omits the mult-driving field, the mult
+        // expression evaluates to None and no new-mult is claimed. The
+        // caller then falls back to its own optimistic default.
+        let spec = load_spec("naqp");
+        let domains = base_domains();
+        let source = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut config = HashMap::new();
+        config.insert("my_name".to_string(), Value::Text("CHRIS".to_string()));
+        config.insert("my_loc".to_string(), Value::Text("MA".to_string()));
+        let engine = SpecEngine::new(spec, source, config).unwrap();
+
+        let dest_na = ResolvedStation::new("W", Continent::NA, true, true);
+        let mut partial = HashMap::new();
+        partial.insert("name".to_string(), "BOB".to_string());
+        let summary = engine
+            .classify_hypothetical_with_mode(
+                &domains,
+                Band::B20,
+                Mode::CW,
+                Callsign::new("N2BB"),
+                &dest_na,
+                &partial,
+            )
+            .unwrap();
+        assert!(summary.would_be_new_mults.is_empty());
     }
 
     #[test]
