@@ -1,7 +1,7 @@
 {
   "id": "cwt",
   "name": "CWops CWT",
-  "cabrillo_contest": "CWT",
+  "cabrillo_contest": "CW-OPS",
   "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
   "modes": ["CW"],
   "dupe_dimension": "Band",

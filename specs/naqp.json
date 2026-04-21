@@ -41,5 +41,22 @@
   "config_fields": [
     {"id": "my_name", "required": true, "required_when": null, "domain": null},
     {"id": "my_loc", "required": true, "required_when": null, "domain": {"External": {"name": "naqp_multipliers"}}}
-  ]
+  ],
+  "variants": {
+    "cw": {
+      "name": "NAQP CW",
+      "cabrillo_contest": "NAQP-CW",
+      "allowed_modes": ["CW"]
+    },
+    "ssb": {
+      "name": "NAQP SSB",
+      "cabrillo_contest": "NAQP-SSB",
+      "allowed_modes": ["SSB"]
+    },
+    "rtty": {
+      "name": "NAQP RTTY",
+      "cabrillo_contest": "NAQP-RTTY",
+      "allowed_modes": ["RTTY"]
+    }
+  }
 }

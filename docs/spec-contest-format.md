@@ -19,7 +19,7 @@ Sweepstakes, NAQP, NEQSOP).
 {
   "id": "ns_sprint",
   "name": "NCCC NS Sprint",
-  "cabrillo_contest": "NCCC-SPRINT",
+  "cabrillo_contest": "NCCC-SPRINT-CW",
   "bands": ["B160", "B80", "B40", "B20", "B15"],
   "modes": ["CW"],
   "dupe_dimension": "Band",
@@ -76,7 +76,7 @@ value.
 | --- | --- |
 | `id` | Short internal identifier (e.g. `"ns_sprint"`). Used for spec lookup and logs. |
 | `name` | Human-readable name. |
-| `cabrillo_contest` | Contest name emitted in the Cabrillo `CONTEST:` header. Variants can override this. |
+| `cabrillo_contest` | Contest name emitted in the Cabrillo `CONTEST:` header. **Must be a canonical name** from [cabrillo-contest-names.md](cabrillo-contest-names.md) — downstream tools (Cabrillo checkers, RTC uploaders) key off this string. Variants can override per-mode. |
 | `bands` | List of bands the contest runs on. See [§3 Bands and modes](#3-bands-and-modes). |
 | `modes` | List of modes the contest allows. |
 | `dupe_dimension` | How the dupe check is scoped. See [§4 Dupes](#4-dupes). |

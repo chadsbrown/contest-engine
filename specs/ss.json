@@ -1,7 +1,7 @@
 {
   "id": "ss",
   "name": "ARRL November Sweepstakes",
-  "cabrillo_contest": "SS",
+  "cabrillo_contest": "ARRL-SS",
   "bands": ["B160", "B80", "B40", "B20", "B15", "B10"],
   "modes": ["CW", "SSB"],
   "dupe_dimension": "Global",
@@ -46,12 +46,12 @@
   "variants": {
     "cw": {
       "name": "CW Weekend",
-      "cabrillo_contest": "SS-CW",
+      "cabrillo_contest": "ARRL-SS-CW",
       "allowed_modes": ["CW"]
     },
     "ssb": {
       "name": "Phone Weekend",
-      "cabrillo_contest": "SS-SSB",
+      "cabrillo_contest": "ARRL-SS-SSB",
       "allowed_modes": ["SSB"]
     }
   }

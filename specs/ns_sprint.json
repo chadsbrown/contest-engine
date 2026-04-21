@@ -1,7 +1,7 @@
 {
   "id": "ns_sprint",
   "name": "NCCC NS Sprint",
-  "cabrillo_contest": "NCCC-SPRINT",
+  "cabrillo_contest": "NCCC-SPRINT-CW",
   "bands": ["B160", "B80", "B40", "B20", "B15"],
   "modes": ["CW"],
   "dupe_dimension": "Band",
