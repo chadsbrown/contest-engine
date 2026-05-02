@@ -1,0 +1,25 @@
+{
+  "spec_id": "inqp",
+  "description": "Indiana QSO Party — in-state perspective. Source is IN (my_is_in=true), exercising in-state county multipliers (other IN counties), US states, CA provinces, and DXCC entities. Verifies the in-state path that the original out-of-state fixture (inqp.log.json) does not cover. Per-mode dimension means the same county on a different band but same mode does NOT add a new mult, but the same county on a different mode DOES.",
+  "source": {"dxcc": "W", "continent": "NA", "is_wve": true, "is_na": true},
+  "config": {
+    "my_is_in": {"Bool": true},
+    "my_county": {"Text": "INMRN"}
+  },
+  "stations": {
+    "K9AAA":  {"dxcc": "W",  "continent": "NA", "is_wve": true,  "is_na": true},
+    "K9BBB":  {"dxcc": "W",  "continent": "NA", "is_wve": true,  "is_na": true},
+    "K1AAA":  {"dxcc": "W",  "continent": "NA", "is_wve": true,  "is_na": true},
+    "VE3ABC": {"dxcc": "VE", "continent": "NA", "is_wve": true,  "is_na": true},
+    "G3AAA":  {"dxcc": "G",  "continent": "EU", "is_wve": false, "is_na": false}
+  },
+  "qsos": [
+    {"band": "B20", "mode": "CW",  "call": "K9AAA",  "exchange": "599 INJEN"},
+    {"band": "B20", "mode": "CW",  "call": "K9BBB",  "exchange": "599 INALL"},
+    {"band": "B20", "mode": "SSB", "call": "K9AAA",  "exchange": "59 INJEN"},
+    {"band": "B40", "mode": "CW",  "call": "K9BBB",  "exchange": "599 INALL"},
+    {"band": "B20", "mode": "CW",  "call": "K1AAA",  "exchange": "599 MA"},
+    {"band": "B20", "mode": "CW",  "call": "VE3ABC", "exchange": "599 ON"},
+    {"band": "B20", "mode": "CW",  "call": "G3AAA",  "exchange": "599 DX"}
+  ]
+}

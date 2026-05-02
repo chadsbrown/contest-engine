@@ -169,20 +169,33 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn load_log(spec_id: &str) -> SyntheticLog {
+/// Build the fixture filename stem. A `None` scenario uses the spec id alone
+/// (`inqp.log.json`); a scenario produces `inqp_<scenario>.log.json` and is
+/// used for cases that exercise an alternate config path (in-state vs
+/// out-of-state, mode variants, etc.) without colliding with the baseline.
+fn fixture_stem(spec_id: &str, scenario: Option<&str>) -> String {
+    match scenario {
+        Some(s) => format!("{spec_id}_{s}"),
+        None => spec_id.to_string(),
+    }
+}
+
+fn load_log(spec_id: &str, scenario: Option<&str>) -> SyntheticLog {
+    let stem = fixture_stem(spec_id, scenario);
     let path = manifest_dir()
         .join("tests/fixtures/logs")
-        .join(format!("{spec_id}.log.json"));
+        .join(format!("{stem}.log.json"));
     let raw = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
     serde_json::from_str(&raw)
         .unwrap_or_else(|e| panic!("failed to parse {}: {}", path.display(), e))
 }
 
-fn load_snapshot(spec_id: &str) -> Option<ScoreSnapshot> {
+fn load_snapshot(spec_id: &str, scenario: Option<&str>) -> Option<ScoreSnapshot> {
+    let stem = fixture_stem(spec_id, scenario);
     let path = manifest_dir()
         .join("tests/fixtures/snapshots")
-        .join(format!("{spec_id}.score.json"));
+        .join(format!("{stem}.score.json"));
     if !path.exists() {
         return None;
     }
@@ -190,10 +203,11 @@ fn load_snapshot(spec_id: &str) -> Option<ScoreSnapshot> {
     Some(serde_json::from_str(&raw).expect("parse snapshot"))
 }
 
-fn write_snapshot(spec_id: &str, snap: &ScoreSnapshot) {
+fn write_snapshot(spec_id: &str, scenario: Option<&str>, snap: &ScoreSnapshot) {
+    let stem = fixture_stem(spec_id, scenario);
     let path = manifest_dir()
         .join("tests/fixtures/snapshots")
-        .join(format!("{spec_id}.score.json"));
+        .join(format!("{stem}.score.json"));
     let raw = serde_json::to_string_pretty(snap).expect("serialize snapshot");
     fs::write(&path, format!("{raw}\n")).expect("write snapshot");
 }
@@ -311,24 +325,30 @@ fn run_log_and_score(log: SyntheticLog) -> ScoreSnapshot {
 }
 
 fn run_regression(spec_id: &str) {
-    let log = load_log(spec_id);
+    run_regression_scenario(spec_id, None);
+}
+
+fn run_regression_scenario(spec_id: &str, scenario: Option<&str>) {
+    let log = load_log(spec_id, scenario);
     assert_eq!(
         log.spec_id, spec_id,
         "log file's spec_id must match harness"
     );
     let actual = run_log_and_score(log);
+    let label = fixture_stem(spec_id, scenario);
 
     if std::env::var("UPDATE_SNAPSHOTS").is_ok() {
-        write_snapshot(spec_id, &actual);
-        eprintln!("updated snapshot for {}", spec_id);
+        write_snapshot(spec_id, scenario, &actual);
+        eprintln!("updated snapshot for {}", label);
         return;
     }
 
-    match load_snapshot(spec_id) {
+    match load_snapshot(spec_id, scenario) {
         None => {
+            let stem = fixture_stem(spec_id, scenario);
             let path = manifest_dir()
                 .join("tests/fixtures/snapshots")
-                .join(format!("{spec_id}.score.json"));
+                .join(format!("{stem}.score.json"));
             panic!(
                 "no snapshot at {}; run UPDATE_SNAPSHOTS=1 cargo test --test regression_existing_specs to create one",
                 path.display()
@@ -342,7 +362,7 @@ fn run_regression(spec_id: &str) {
                     serde_json::to_string_pretty(&expected).expect("serialize expected");
                 panic!(
                     "regression for {}:\n--- expected ---\n{}\n--- actual ---\n{}",
-                    spec_id, expected_str, actual_str
+                    label, expected_str, actual_str
                 );
             }
         }
@@ -422,6 +442,14 @@ fn regression_miqp() {
 #[test]
 fn regression_inqp() {
     run_regression("inqp");
+}
+
+#[test]
+fn regression_inqp_in_state() {
+    // In-state Indiana operator: exercises the my_is_in=true path that
+    // baseline `regression_inqp` (out-of-state) doesn't reach. Locks in
+    // credit for in-state IN counties + US states + CA provinces + DXCC.
+    run_regression_scenario("inqp", Some("in_state"));
 }
 
 #[test]

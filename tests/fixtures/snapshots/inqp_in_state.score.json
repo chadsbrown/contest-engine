@@ -1,0 +1,26 @@
+{
+  "total_qsos": 7,
+  "dupe_qsos": 0,
+  "total_points": 14,
+  "total_mults": 6,
+  "claimed_score": 84,
+  "points_by_band": {
+    "B20": 12,
+    "B40": 2
+  },
+  "mults": {
+    "county_mult": [
+      "INALL",
+      "INJEN"
+    ],
+    "in_state_dxcc_mult": [
+      "G"
+    ],
+    "in_state_prov_mult": [
+      "ON"
+    ],
+    "in_state_state_mult": [
+      "MA"
+    ]
+  }
+}
