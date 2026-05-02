@@ -43,6 +43,11 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": false}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "ne_counties"}}
+        },
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_ne"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "ne_counties"}}
         }
       ]
     },

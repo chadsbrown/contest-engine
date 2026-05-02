@@ -43,6 +43,11 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_nm"}}, {"Value": {"Bool": false}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "nm_counties"}}
+        },
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_nm"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "nm_counties"}}
         }
       ]
     },

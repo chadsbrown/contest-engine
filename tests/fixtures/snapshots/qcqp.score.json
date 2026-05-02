@@ -9,6 +9,7 @@
     "B40": 2
   },
   "mults": {
+    "in_region_dxcc_mult": [],
     "in_region_prov_mult": [],
     "in_region_state_mult": [],
     "region_mult": [

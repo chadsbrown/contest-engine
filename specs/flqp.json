@@ -43,6 +43,11 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_fl"}}, {"Value": {"Bool": false}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "fl_counties"}}
+        },
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_fl"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "fl_counties"}}
         }
       ]
     },

@@ -48,6 +48,11 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_de"}}, {"Value": {"Bool": false}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "de_counties"}}
+        },
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_de"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "de_counties"}}
         }
       ]
     },

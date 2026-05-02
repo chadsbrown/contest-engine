@@ -48,6 +48,11 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_nd"}}, {"Value": {"Bool": false}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "nd_counties"}}
+        },
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_nd"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "nd_counties"}}
         }
       ]
     },
@@ -70,6 +75,17 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_nd"}}, {"Value": {"Bool": true}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "ca_provinces"}}
+        }
+      ]
+    },
+    {
+      "id": "in_state_dxcc_mult",
+      "dimension": "Global",
+      "variants": [
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_nd"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "DEST", "key": "dxcc"},
+          "domain": {"External": {"name": "dxcc_entities_excluding_w_ve"}}
         }
       ]
     }

@@ -43,6 +43,11 @@
           "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": false}}]},
           "key": {"scope": "RCVD", "key": "loc"},
           "domain": {"External": {"name": "on_multiplier_areas"}}
+        },
+        {
+          "when": {"Eq": [{"Field": {"scope": "CONFIG", "key": "my_is_on"}}, {"Value": {"Bool": true}}]},
+          "key": {"scope": "RCVD", "key": "loc"},
+          "domain": {"External": {"name": "on_multiplier_areas"}}
         }
       ]
     },
